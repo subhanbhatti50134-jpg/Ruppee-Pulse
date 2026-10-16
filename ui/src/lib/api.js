@@ -45,13 +45,26 @@ export const api = async (path, { method = 'GET', body, signal } = {}) => {
 
   if (!response.ok) {
     const detail = data?.detail
-    const message = typeof detail === 'string'
+    let message = typeof detail === 'string'
       ? detail
       : Array.isArray(detail)
         ? detail.map((d) => d.msg || d.type).join(', ')
         : `Request failed (${response.status})`
-    if (response.status === 401 && session?.token) {
-      clearSession()
+
+    if (response.status === 401) {
+      if (session?.token) {
+        // Dead/stale token: log out visibly and send the user to sign in,
+        // instead of silently breaking every later request.
+        clearSession()
+        window.dispatchEvent(new Event('rp:auth-changed'))
+        message = 'Your session expired — please sign in again.'
+        if (!window.location.pathname.startsWith('/login')) {
+          window.location.assign('/login?reason=expired')
+          throw new ApiError(message, 401)
+        }
+      } else if (!path.startsWith('/api/auth/')) {
+        message = 'Please sign in to continue.'
+      }
     }
     throw new ApiError(message, response.status)
   }

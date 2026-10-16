@@ -7,10 +7,14 @@ const Login = () => {
   const navigate = useNavigate()
   const location = useLocation()
   const redirectPath = (location.state && location.state.from) || '/'
+  const expired = new URLSearchParams(location.search).get('reason') === 'expired'
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [message, setMessage] = useState((location.state && location.state.message) || '')
+  const [message, setMessage] = useState(
+    (location.state && location.state.message) ||
+      (expired ? 'Your session expired — please sign in again.' : ''),
+  )
 
   useEffect(() => {
     if (getCurrentUser()) {
@@ -59,7 +63,17 @@ const Login = () => {
         <h1 className="text-3xl font-bold">Welcome back</h1>
         <p className="mt-2 text-slate-400">Sign in to continue to your dashboard.</p>
 
-        {message && <p className="mt-5 rounded-lg border border-emerald-700 bg-emerald-950/40 p-3 text-sm text-emerald-300">{message}</p>}
+        {message && (
+          <p
+            className={`mt-5 rounded-lg border p-3 text-sm ${
+              expired
+                ? 'border-amber-600/60 bg-amber-950/40 text-amber-300'
+                : 'border-emerald-700 bg-emerald-950/40 text-emerald-300'
+            }`}
+          >
+            {message}
+          </p>
+        )}
         {error && <p role="alert" className="mt-5 rounded-lg border border-red-800 bg-red-950/40 p-3 text-sm text-red-300">{error}</p>}
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-5">
