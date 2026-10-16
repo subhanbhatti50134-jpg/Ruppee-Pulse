@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 import { useMarket } from '../context/MarketContext.jsx'
 import CandleChart from '../components/CandleChart.jsx'
@@ -8,6 +8,154 @@ import StopsPanel from '../components/StopsPanel.jsx'
 import PositionCalculator from '../components/PositionCalculator.jsx'
 import { baseAsset, fmtNum, fmtUsd, timeAgo } from '../lib/format.js'
 import { downloadCsv } from '../lib/csv.js'
+
+const fmtPctText = (value) =>
+  `${value >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`
+
+const statusColor = (status) =>
+  status === 'FILLED' ? 'text-emerald-400'
+  : status === 'CANCELED' || status === 'REJECTED' ? 'text-red-400'
+  : 'text-amber-400'
+
+// Table rows receive ticker-derived numbers that are recomputed every render;
+// compare by value so unchanged rows skip reconciliation during live ticks.
+const positionRowEqual = (a, b) => {
+  if (
+    a.confirming !== b.confirming ||
+    a.mark !== b.mark ||
+    a.pnl !== b.pnl ||
+    a.pct !== b.pct ||
+    a.onClose !== b.onClose
+  ) return false
+  const x = a.p
+  const y = b.p
+  return x === y || (
+    x.asset === y.asset &&
+    x.qty === y.qty &&
+    x.avg_cost === y.avg_cost &&
+    x.unrealized_pnl === y.unrealized_pnl &&
+    x.unrealized_pnl_pct === y.unrealized_pnl_pct
+  )
+}
+
+const PositionRow = React.memo(({ p, mark, pnl, pct, confirming, onClose }) => {
+  const value = mark * p.qty
+  return (
+    <tr className="border-b border-gray-800/60 hover:bg-slate-800/40">
+      <td className="px-3 py-2 font-semibold">{p.asset}</td>
+      <td className="px-3 py-2 text-right font-mono">{fmtNum(p.qty, 6)}</td>
+      <td className="px-3 py-2 text-right font-mono text-slate-400">{fmtUsd(p.avg_cost)}</td>
+      <td className="px-3 py-2 text-right font-mono">{fmtUsd(mark)}</td>
+      <td className="px-3 py-2 text-right font-mono">{fmtUsd(value)}</td>
+      <td className={`px-3 py-2 text-right font-mono font-semibold ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+        {pnl >= 0 ? '+' : ''}{fmtUsd(pnl, 2)}
+        {pct != null && (
+          <span className="ml-1 text-xs font-normal">({fmtPctText(pct)})</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <button
+          type="button"
+          onClick={() => onClose(p)}
+          className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
+            confirming
+              ? 'bg-amber-600 text-white hover:bg-amber-500'
+              : pnl >= 0
+                ? 'bg-emerald-900/60 text-emerald-300 hover:bg-emerald-800'
+                : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+          }`}
+        >
+          {confirming ? 'Confirm sell?' : pnl >= 0 ? 'Take profit' : 'Close'}
+        </button>
+      </td>
+    </tr>
+  )
+}, positionRowEqual)
+
+const openOrderRowEqual = (a, b) => {
+  if (a.pnl !== b.pnl || a.onCancel !== b.onCancel) return false
+  const x = a.o
+  const y = b.o
+  return x === y || (
+    x.id === y.id &&
+    x.symbol === y.symbol &&
+    x.side === y.side &&
+    x.type === y.type &&
+    x.price === y.price &&
+    x.avg_price === y.avg_price &&
+    x.quantity === y.quantity &&
+    x.mode === y.mode &&
+    x.created_at === y.created_at
+  )
+}
+
+const OpenOrderRow = React.memo(({ o, pnl, onCancel }) => (
+  <tr className="border-b border-gray-800/60 hover:bg-slate-800/40">
+    <td className="px-3 py-2 font-semibold">{o.symbol}</td>
+    <td className={`px-3 py-2 font-semibold ${o.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{o.side}</td>
+    <td className="px-3 py-2 text-slate-400">{o.type}</td>
+    <td className="px-3 py-2 text-right font-mono">{o.price ? fmtUsd(o.price) : 'MKT'}</td>
+    <td className="px-3 py-2 text-right font-mono">{fmtNum(o.quantity, 6)}</td>
+    <td className={`px-3 py-2 text-right font-mono ${pnl == null ? 'text-slate-600' : pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+      {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}${fmtUsd(pnl, 2)}`}
+    </td>
+    <td className="px-3 py-2">
+      <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${o.mode === 'demo' ? 'bg-slate-700 text-slate-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
+        {o.mode}
+      </span>
+    </td>
+    <td className="px-3 py-2 text-xs text-slate-500">{timeAgo(o.created_at)}</td>
+    <td className="px-3 py-2 text-right">
+      <button
+        type="button"
+        onClick={() => onCancel(o.id)}
+        className="rounded-md bg-red-900/60 px-3 py-1 text-xs font-semibold text-red-300 transition hover:bg-red-800"
+      >
+        Cancel
+      </button>
+    </td>
+  </tr>
+), openOrderRowEqual)
+
+const historyRowEqual = (a, b) => {
+  const x = a.o
+  const y = b.o
+  return x === y || (
+    x.id === y.id &&
+    x.symbol === y.symbol &&
+    x.side === y.side &&
+    x.type === y.type &&
+    x.quantity === y.quantity &&
+    x.price === y.price &&
+    x.avg_price === y.avg_price &&
+    x.status === y.status &&
+    x.mode === y.mode &&
+    x.pnl === y.pnl &&
+    x.created_at === y.created_at
+  )
+}
+
+const HistoryRow = React.memo(({ o }) => (
+  <tr className="border-b border-gray-800/60 hover:bg-slate-800/40">
+    <td className="px-3 py-2 font-semibold">{o.symbol}</td>
+    <td className={`px-3 py-2 font-semibold ${o.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{o.side}</td>
+    <td className="px-3 py-2 text-slate-400">{o.type}</td>
+    <td className="px-3 py-2 text-right font-mono">{fmtNum(o.quantity, 6)}</td>
+    <td className="px-3 py-2 text-right font-mono">{o.avg_price ? fmtUsd(o.avg_price) : o.price ? fmtUsd(o.price) : '—'}</td>
+    <td className="px-3 py-2 text-right font-mono">
+      {o.pnl == null ? (
+        <span className="text-slate-600">—</span>
+      ) : (
+        <span className={o.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+          {o.pnl >= 0 ? '+' : ''}{fmtUsd(o.pnl, 2)}
+        </span>
+      )}
+    </td>
+    <td className={`px-3 py-2 font-semibold ${statusColor(o.status)}`}>{o.status}</td>
+    <td className="px-3 py-2 text-xs uppercase text-slate-500">{o.mode}</td>
+    <td className="px-3 py-2 text-xs text-slate-500">{timeAgo(o.created_at)}</td>
+  </tr>
+), historyRowEqual)
 
 const Trade = () => {
   const { selectedSymbol, tickers, wsConnected } = useMarket()
@@ -20,6 +168,10 @@ const Trade = () => {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [closing, setClosing] = useState(null)
+  const closingRef = useRef(null)
+  const balancesRef = useRef(null)
+  useEffect(() => { closingRef.current = closing }, [closing])
+  useEffect(() => { balancesRef.current = balances }, [balances])
 
   const load = useCallback(async () => {
     try {
@@ -52,7 +204,7 @@ const Trade = () => {
     }
   }, [load])
 
-  const cancel = async (orderId) => {
+  const cancel = useCallback(async (orderId) => {
     setNotice('')
     setError('')
     try {
@@ -62,7 +214,7 @@ const Trade = () => {
     } catch (err) {
       setError(err.message)
     }
-  }
+  }, [load])
 
   const ticker = tickers[selectedSymbol]
 
@@ -85,8 +237,10 @@ const Trade = () => {
   }
 
   // Two-step close so a stray click never dumps a live position.
-  const closePosition = async (p) => {
-    if (closing !== p.asset) {
+  // Reads closing/balances from refs so the callback identity stays stable
+  // for memoized rows across ticks and polls.
+  const closePosition = useCallback(async (p) => {
+    if (closingRef.current !== p.asset) {
       setClosing(p.asset)
       setTimeout(() => setClosing((cur) => (cur === p.asset ? null : cur)), 4000)
       return
@@ -94,7 +248,7 @@ const Trade = () => {
     setClosing(null)
     setNotice('')
     setError('')
-    const held = balances?.balances.find((b) => b.asset === p.asset)
+    const held = balancesRef.current?.balances.find((b) => b.asset === p.asset)
     const qty = held ? held.free : p.qty
     try {
       const res = await api('/api/trade/order', {
@@ -112,14 +266,9 @@ const Trade = () => {
     } catch (err) {
       setError(err.message)
     }
-  }
+  }, [load])
 
   const openPnl = positions.reduce((sum, p) => sum + positionPnl(p).pnl, 0)
-
-  const statusColor = (status) =>
-    status === 'FILLED' ? 'text-emerald-400'
-    : status === 'CANCELED' || status === 'REJECTED' ? 'text-red-400'
-    : 'text-amber-400'
 
   const th = 'py-2 px-3 text-left text-xs uppercase tracking-wide text-slate-500'
 
@@ -252,37 +401,16 @@ const Trade = () => {
                   )}
                   {positions.map((p) => {
                     const { mark, pnl, pct } = positionPnl(p)
-                    const value = mark * p.qty
-                    const confirming = closing === p.asset
                     return (
-                      <tr key={p.asset} className="border-b border-gray-800/60 hover:bg-slate-800/40">
-                        <td className="px-3 py-2 font-semibold">{p.asset}</td>
-                        <td className="px-3 py-2 text-right font-mono">{fmtNum(p.qty, 6)}</td>
-                        <td className="px-3 py-2 text-right font-mono text-slate-400">{fmtUsd(p.avg_cost)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{fmtUsd(mark)}</td>
-                        <td className="px-3 py-2 text-right font-mono">{fmtUsd(value)}</td>
-                        <td className={`px-3 py-2 text-right font-mono font-semibold ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                          {pnl >= 0 ? '+' : ''}{fmtUsd(pnl, 2)}
-                          {pct != null && (
-                            <span className="ml-1 text-xs font-normal">({fmtPctText(pct)})</span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => closePosition(p)}
-                            className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
-                              confirming
-                                ? 'bg-amber-600 text-white hover:bg-amber-500'
-                                : pnl >= 0
-                                  ? 'bg-emerald-900/60 text-emerald-300 hover:bg-emerald-800'
-                                  : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
-                            }`}
-                          >
-                            {confirming ? 'Confirm sell?' : pnl >= 0 ? 'Take profit' : 'Close'}
-                          </button>
-                        </td>
-                      </tr>
+                      <PositionRow
+                        key={p.asset}
+                        p={p}
+                        mark={mark}
+                        pnl={pnl}
+                        pct={pct}
+                        confirming={closing === p.asset}
+                        onClose={closePosition}
+                      />
                     )
                   })}
                 </tbody>
@@ -312,36 +440,9 @@ const Trade = () => {
                   {openOrders.length === 0 && (
                     <tr><td colSpan={9} className="px-3 py-5 text-center text-slate-500">No open orders.</td></tr>
                   )}
-                  {openOrders.map((o) => {
-                    const pnl = orderPnl(o)
-                    return (
-                    <tr key={o.id} className="border-b border-gray-800/60 hover:bg-slate-800/40">
-                      <td className="px-3 py-2 font-semibold">{o.symbol}</td>
-                      <td className={`px-3 py-2 font-semibold ${o.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{o.side}</td>
-                      <td className="px-3 py-2 text-slate-400">{o.type}</td>
-                      <td className="px-3 py-2 text-right font-mono">{o.price ? fmtUsd(o.price) : 'MKT'}</td>
-                      <td className="px-3 py-2 text-right font-mono">{fmtNum(o.quantity, 6)}</td>
-                      <td className={`px-3 py-2 text-right font-mono ${pnl == null ? 'text-slate-600' : pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}${fmtUsd(pnl, 2)}`}
-                      </td>
-                      <td className="px-3 py-2">
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${o.mode === 'demo' ? 'bg-slate-700 text-slate-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
-                          {o.mode}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2 text-xs text-slate-500">{timeAgo(o.created_at)}</td>
-                      <td className="px-3 py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() => cancel(o.id)}
-                          className="rounded-md bg-red-900/60 px-3 py-1 text-xs font-semibold text-red-300 transition hover:bg-red-800"
-                        >
-                          Cancel
-                        </button>
-                      </td>
-                    </tr>
-                    )
-                  })}
+                  {openOrders.map((o) => (
+                    <OpenOrderRow key={o.id} o={o} pnl={orderPnl(o)} onCancel={cancel} />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -398,25 +499,7 @@ const Trade = () => {
                     <tr><td colSpan={9} className="px-3 py-5 text-center text-slate-500">No orders yet — place one from the ticket.</td></tr>
                   )}
                   {history.map((o) => (
-                    <tr key={o.id} className="border-b border-gray-800/60 hover:bg-slate-800/40">
-                      <td className="px-3 py-2 font-semibold">{o.symbol}</td>
-                      <td className={`px-3 py-2 font-semibold ${o.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{o.side}</td>
-                      <td className="px-3 py-2 text-slate-400">{o.type}</td>
-                      <td className="px-3 py-2 text-right font-mono">{fmtNum(o.quantity, 6)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{o.avg_price ? fmtUsd(o.avg_price) : o.price ? fmtUsd(o.price) : '—'}</td>
-                      <td className="px-3 py-2 text-right font-mono">
-                        {o.pnl == null ? (
-                          <span className="text-slate-600">—</span>
-                        ) : (
-                          <span className={o.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                            {o.pnl >= 0 ? '+' : ''}{fmtUsd(o.pnl, 2)}
-                          </span>
-                        )}
-                      </td>
-                      <td className={`px-3 py-2 font-semibold ${statusColor(o.status)}`}>{o.status}</td>
-                      <td className="px-3 py-2 text-xs uppercase text-slate-500">{o.mode}</td>
-                      <td className="px-3 py-2 text-xs text-slate-500">{timeAgo(o.created_at)}</td>
-                    </tr>
+                    <HistoryRow key={o.id} o={o} />
                   ))}
                 </tbody>
               </table>
@@ -465,8 +548,5 @@ const Trade = () => {
     </div>
   )
 }
-
-const fmtPctText = (value) =>
-  `${value >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`
 
 export default Trade

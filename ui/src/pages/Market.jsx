@@ -1,7 +1,76 @@
-import React, { useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMarket } from '../context/MarketContext.jsx'
 import { baseAsset, fmtCompact, fmtNum, fmtPct, fmtPkr, fmtUsd } from '../lib/format.js'
+
+// Row props change by value, not identity: ticker objects are recreated per
+// broadcast, so compare only the fields this row renders.
+const rowEqual = (a, b) => {
+  if (
+    a.index !== b.index ||
+    a.active !== b.active ||
+    a.watched !== b.watched ||
+    a.buyRate !== b.buyRate ||
+    a.onWatch !== b.onWatch ||
+    a.onTrade !== b.onTrade
+  ) return false
+  const x = a.t
+  const y = b.t
+  return x === y || (
+    x.symbol === y.symbol &&
+    x.price === y.price &&
+    x.change_pct === y.change_pct &&
+    x.high === y.high &&
+    x.low === y.low &&
+    x.quoteVolume === y.quoteVolume
+  )
+}
+
+const MarketRow = React.memo(({ t, index, active, watched, buyRate, onWatch, onTrade }) => {
+  const up = t.change_pct >= 0
+  return (
+    <tr
+      className={`border-b border-gray-800/60 transition hover:bg-slate-800/40 ${active ? 'bg-blue-600/10' : ''}`}
+    >
+      <td className="px-2 py-2.5 text-center">
+        <button
+          type="button"
+          onClick={() => onWatch(t.symbol)}
+          aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
+          className={`text-lg leading-none transition hover:scale-110 ${
+            watched ? 'text-amber-400' : 'text-slate-600 hover:text-amber-400'
+          }`}
+        >
+          {watched ? '★' : '☆'}
+        </button>
+      </td>
+      <td className="px-3 py-2.5">
+        <span className="mr-2 text-xs text-slate-600">{index + 1}</span>
+        <span className="font-semibold">{baseAsset(t.symbol)}</span>
+        <span className="text-xs text-slate-500">/USDT</span>
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono">{fmtUsd(t.price)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-300">
+        {buyRate ? fmtPkr(t.price * buyRate) : '—'}
+      </td>
+      <td className={`px-3 py-2.5 text-right font-mono font-semibold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
+        {fmtPct(t.change_pct)}
+      </td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-400">{fmtUsd(t.high)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-400">{fmtUsd(t.low)}</td>
+      <td className="px-3 py-2.5 text-right font-mono text-slate-400">${fmtCompact(t.quoteVolume)}</td>
+      <td className="px-3 py-2.5 text-right">
+        <button
+          type="button"
+          onClick={() => onTrade(t.symbol)}
+          className="rounded-md bg-blue-600/80 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500"
+        >
+          Trade
+        </button>
+      </td>
+    </tr>
+  )
+}, rowEqual)
 
 const Market = () => {
   const navigate = useNavigate()
@@ -41,10 +110,10 @@ const Market = () => {
 
   const sortArrow = (key) => (sortKey === key ? (sortDir === -1 ? ' ↓' : ' ↑') : '')
 
-  const trade = (symbol) => {
+  const trade = useCallback((symbol) => {
     setSelectedSymbol(symbol)
     navigate('/trade')
-  }
+  }, [setSelectedSymbol, navigate])
 
   const th = 'py-2 px-3 text-left text-xs uppercase tracking-wide text-slate-500 cursor-pointer select-none hover:text-slate-300'
 
@@ -137,54 +206,18 @@ const Market = () => {
                 </td>
               </tr>
             )}
-            {rows.map((t, index) => {
-              const up = t.change_pct >= 0
-              const active = t.symbol === selectedSymbol
-              const watched = inWatchlist(t.symbol)
-              return (
-                <tr
-                  key={t.symbol}
-                  className={`border-b border-gray-800/60 transition hover:bg-slate-800/40 ${active ? 'bg-blue-600/10' : ''}`}
-                >
-                  <td className="px-2 py-2.5 text-center">
-                    <button
-                      type="button"
-                      onClick={() => toggleWatchlist(t.symbol)}
-                      aria-label={watched ? 'Remove from watchlist' : 'Add to watchlist'}
-                      className={`text-lg leading-none transition hover:scale-110 ${
-                        watched ? 'text-amber-400' : 'text-slate-600 hover:text-amber-400'
-                      }`}
-                    >
-                      {watched ? '★' : '☆'}
-                    </button>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="mr-2 text-xs text-slate-600">{index + 1}</span>
-                    <span className="font-semibold">{baseAsset(t.symbol)}</span>
-                    <span className="text-xs text-slate-500">/USDT</span>
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono">{fmtUsd(t.price)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-300">
-                    {buyRate ? fmtPkr(t.price * buyRate) : '—'}
-                  </td>
-                  <td className={`px-3 py-2.5 text-right font-mono font-semibold ${up ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {fmtPct(t.change_pct)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-400">{fmtUsd(t.high)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-400">{fmtUsd(t.low)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono text-slate-400">${fmtCompact(t.quoteVolume)}</td>
-                  <td className="px-3 py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => trade(t.symbol)}
-                      className="rounded-md bg-blue-600/80 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500"
-                    >
-                      Trade
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
+            {rows.map((t, index) => (
+              <MarketRow
+                key={t.symbol}
+                t={t}
+                index={index}
+                active={t.symbol === selectedSymbol}
+                watched={inWatchlist(t.symbol)}
+                buyRate={buyRate}
+                onWatch={toggleWatchlist}
+                onTrade={trade}
+              />
+            ))}
           </tbody>
         </table>
       </div>

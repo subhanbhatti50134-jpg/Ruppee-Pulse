@@ -6,6 +6,29 @@ const MarketContext = createContext(null)
 
 const SELECTED_SYMBOL_KEY = 'ruppee_pulse_symbol'
 const MAX_ALERTS = 50
+const FLUSH_MS = 250
+
+// Ticker snapshots replace the whole map on every broadcast; compare the
+// fields the UI actually renders so identical payloads keep their identity
+// and skip a full-tree re-render.
+const sameTickers = (a, b) => {
+  const ka = Object.keys(a)
+  if (ka.length !== Object.keys(b).length) return false
+  for (const s of ka) {
+    const x = a[s]
+    const y = b[s]
+    if (!y) return false
+    if (
+      x.price !== y.price ||
+      x.change_pct !== y.change_pct ||
+      x.high !== y.high ||
+      x.low !== y.low ||
+      x.quoteVolume !== y.quoteVolume ||
+      x.volume !== y.volume
+    ) return false
+  }
+  return true
+}
 
 export const MarketProvider = ({ children }) => {
   const [tickers, setTickers] = useState({})
@@ -22,6 +45,10 @@ export const MarketProvider = ({ children }) => {
   )
   const [watchlist, setWatchlist] = useState([])
   const alertIds = useRef(new Set())
+  const tickersRef = useRef({})
+  const pendingTickers = useRef(null)
+  const pendingP2p = useRef(null)
+  const flushTimer = useRef(null)
 
   const setSelectedSymbol = useCallback((symbol) => {
     localStorage.setItem(SELECTED_SYMBOL_KEY, symbol)
@@ -48,6 +75,33 @@ export const MarketProvider = ({ children }) => {
     if (payload.premium !== undefined) setPremium(payload.premium)
     if (payload.ma !== undefined) setMa(payload.ma)
   }, [])
+
+  // Commit tickers only when rendered values actually changed.
+  const commitTickers = useCallback((next) => {
+    const prev = tickersRef.current
+    if (prev === next || sameTickers(prev, next)) return
+    tickersRef.current = next
+    setTickers(next)
+    setLastTick(Date.now())
+  }, [])
+
+  const flushPending = useCallback(() => {
+    flushTimer.current = null
+    const nextTickers = pendingTickers.current
+    const nextP2p = pendingP2p.current
+    pendingTickers.current = null
+    pendingP2p.current = null
+    if (nextP2p) applyP2p(nextP2p)
+    if (nextTickers) commitTickers(nextTickers)
+  }, [applyP2p, commitTickers])
+
+  // Coalesce bursts of WS messages (snapshot + tickers + p2p arrive together
+  // on connect) into a single state commit.
+  const scheduleFlush = useCallback(() => {
+    if (flushTimer.current == null) {
+      flushTimer.current = setTimeout(flushPending, FLUSH_MS)
+    }
+  }, [flushPending])
 
   const dismissAlerts = useCallback(() => setAlerts([]), [])
 
@@ -101,7 +155,7 @@ export const MarketProvider = ({ children }) => {
           api('/api/p2p/rates'),
         ])
         if (cancelled) return
-        setTickers(tickerRes.data || {})
+        commitTickers(tickerRes.data || {})
         setStreamConnected(Boolean(tickerRes.stream_connected))
         applyP2p(p2pRes)
       } catch {
@@ -110,7 +164,7 @@ export const MarketProvider = ({ children }) => {
     }
     load()
     return () => { cancelled = true }
-  }, [applyP2p])
+  }, [applyP2p, commitTickers])
 
   // Live WebSocket stream with backoff reconnect.
   useEffect(() => {
@@ -142,14 +196,16 @@ export const MarketProvider = ({ children }) => {
           return
         }
         if (message.type === 'snapshot') {
-          setTickers(message.data?.tickers || {})
+          pendingTickers.current = message.data?.tickers || {}
           setStreamConnected(Boolean(message.data?.stream_connected))
-          applyP2p(message.data?.p2p)
+          if (message.data?.p2p) pendingP2p.current = message.data.p2p
+          scheduleFlush()
         } else if (message.type === 'tickers') {
-          setTickers(message.data || {})
-          setLastTick(Date.now())
+          pendingTickers.current = message.data || {}
+          scheduleFlush()
         } else if (message.type === 'p2p') {
-          applyP2p(message.data)
+          pendingP2p.current = message.data
+          scheduleFlush()
         } else if (message.type === 'alert') {
           pushAlert(message.data)
         } else if (message.type === 'status') {
@@ -176,12 +232,14 @@ export const MarketProvider = ({ children }) => {
     return () => {
       stopped = true
       clearTimeout(retryTimer)
+      clearTimeout(flushTimer.current)
+      flushTimer.current = null
       if (socket) {
         socket.onclose = null
         try { socket.close() } catch { /* already closed */ }
       }
     }
-  }, [applyP2p, pushAlert])
+  }, [pushAlert, scheduleFlush])
 
   const value = useMemo(
     () => ({
