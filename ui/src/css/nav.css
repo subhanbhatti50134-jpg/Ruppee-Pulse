@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+.nav-3d {
+    position: absolute;
+    z-index: 10;
+    top: 1.75rem;
+    right: 0;
+    left: 0;
+    padding: 0 1rem;
+}
+
+.nav-3d__surface {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: min(1240px, 100%);
+    min-height: 4.4rem;
+    margin: 0 auto;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    border-radius: 1rem;
+    background: linear-gradient(145deg, rgba(30, 41, 59, 0.97), rgba(2, 8, 23, 0.98));
+    padding: 0.7rem 1rem;
+    box-shadow:
+        0 14px 0 rgba(2, 6, 23, 0.55),
+        0 24px 34px rgba(2, 6, 23, 0.45),
+        inset 1px 1px 0 rgba(255, 255, 255, 0.12),
+        inset -1px -1px 0 rgba(2, 6, 23, 0.7);
+    transform: perspective(1000px) rotateX(2deg);
+    backdrop-filter: blur(16px);
+}
+
+.nav-3d__surface::before {
+    position: absolute;
+    top: 0.35rem;
+    right: 1rem;
+    left: 1rem;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(147, 197, 253, 0.7), transparent);
+    content: '';
+}
+
+.nav-3d__brand {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    color: #f8fafc;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    white-space: nowrap;
+}
+
+.nav-3d__brand strong {
+    color: #60a5fa;
+}
+
+.nav-3d__logo {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.6rem;
+    box-shadow: 0 4px 0 rgba(30, 64, 175, 0.65), 0 6px 12px rgba(37, 99, 235, 0.3);
+}
+
+.nav-3d__links {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    margin-left: 1.5rem;
+}
+
+.nav-3d__link {
+    border: 1px solid transparent;
+    border-radius: 0.6rem;
+    padding: 0.55rem 0.7rem;
+    color: #cbd5e1;
+    font-size: 0.85rem;
+    font-weight: 700;
+    transition: transform 150ms ease, color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.nav-3d__link:hover {
+    background: rgba(96, 165, 250, 0.1);
+    color: #bfdbfe;
+    transform: translateY(-2px);
+}
+
+.nav-3d__link--active {
+    border-color: rgba(96, 165, 250, 0.35);
+    background: linear-gradient(145deg, rgba(59, 130, 246, 0.28), rgba(30, 64, 175, 0.18));
+    box-shadow: 0 4px 0 rgba(30, 64, 175, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    color: #93c5fd;
+}
+
+.nav-3d__search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    margin-left: auto;
+    color: #94a3b8;
+}
+
+.nav-3d__search svg {
+    position: absolute;
+    left: 0.65rem;
+    font-size: 1.2rem;
+}
+
+.nav-3d__search-input {
+    width: 9rem;
+    border: 1px solid #475569;
+    border-radius: 0.6rem;
+    background: rgba(15, 23, 42, 0.75);
+    padding: 0.55rem 0.7rem 0.55rem 2rem;
+    color: #f8fafc;
+    font-size: 0.8rem;
+    outline: none;
+}
+
+.nav-3d__search-input:focus {
+    border-color: #60a5fa;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.nav-3d__account {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+}
+
+.nav-3d__greeting {
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.nav-3d__button {
+    border: 1px solid rgba(96, 165, 250, 0.65);
+    border-radius: 0.6rem;
+    background: linear-gradient(145deg, rgba(37, 99, 235, 0.4), rgba(30, 64, 175, 0.3));
+    padding: 0.55rem 0.8rem;
+    color: #dbeafe;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+    box-shadow: 0 4px 0 rgba(30, 64, 175, 0.65);
+    transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+.nav-3d__button:hover {
+    background: linear-gradient(145deg, rgba(59, 130, 246, 0.55), rgba(37, 99, 235, 0.4));
+    transform: translateY(-2px);
+    box-shadow: 0 6px 0 rgba(30, 64, 175, 0.65);
+}
+
+.nav-3d__button:active {
+    transform: translateY(2px);
+    box-shadow: 0 2px 0 rgba(30, 64, 175, 0.65);
+}
+
+@media (max-width: 1020px) {
+    .nav-3d__links {
+        gap: 0;
+        margin-left: 0.25rem;
+    }
+
+    .nav-3d__link {
+        padding: 0.5rem;
+    }
+
+    .nav-3d__search {
+        display: none;
+    }
+
+    .nav-3d__greeting {
+        display: none;
+    }
+}
+
+@media (max-width: 700px) {
+    .nav-3d {
+        top: 1rem;
+    }
+
+    .nav-3d__surface {
+        min-height: 3.8rem;
+    }
+
+    .nav-3d__links {
+        display: none;
+    }
+}

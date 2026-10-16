@@ -1,0 +1,20 @@
+services:
+  rupeepulse:
+    build: .
+    ports:
+      - "8010:8010"
+    environment:
+      RP_CORS_ORIGINS: "http://localhost:8010,http://127.0.0.1:8010"
+      # Share the cache across workers / restarts (falls back to in-memory if omitted)
+      RP_REDIS_URL: "redis://redis:6379/0"
+    volumes:
+      # keep accounts, orders, alerts and the master key across rebuilds
+      - ./APis/data:/repo/APis/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped

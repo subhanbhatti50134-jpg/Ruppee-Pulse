@@ -1,0 +1,25 @@
+# Python
+APis/venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+ui/node_modules/
+ui/dist/
+
+# Runtime data & secrets — never commit
+APis/data/*.db
+APis/data/*.key
+APis/backend.log
+*.log
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Editor swap files
+*.kate-swp
+.*.swp

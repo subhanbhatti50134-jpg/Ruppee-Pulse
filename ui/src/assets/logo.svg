@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 200" width="600" height="200">
+  <defs>
+    <linearGradient id="pulse-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399"/>
+      <stop offset="100%" stop-color="#0ea5e9"/>
+    </linearGradient>
+  </defs>
+  
+  <rect width="600" height="200" fill="#0f172a" rx="16"/>
+  
+  <path d="M 60 110 L 90 110 L 110 50 L 145 150 L 175 80 L 195 110 L 230 110" 
+        fill="none" 
+        stroke="url(#pulse-grad)" 
+        stroke-width="12" 
+        stroke-linecap="round" 
+        stroke-linejoin="round"/>
+        
+  <text x="260" y="130" font-family="system-ui, -apple-system, sans-serif" font-size="68" font-weight="700" fill="#f8fafc">
+    Ruppe<tspan fill="#34d399">Pulse</tspan>
+  </text>
+</svg>

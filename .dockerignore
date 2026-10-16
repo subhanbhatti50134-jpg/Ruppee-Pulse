@@ -1,0 +1,12 @@
+.git
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+APis/venv
+APis/data/*.db
+APis/data/*.key
+APis/backend.log
+ui/node_modules
+ui/dist
+*.md
