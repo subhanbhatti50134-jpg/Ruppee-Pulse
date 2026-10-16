@@ -53,14 +53,14 @@ const Signup = () => {
     <main className="auth-page flex min-h-screen items-center justify-center px-4 py-12 text-white">
       <div className="auth-layout">
         <div className="auth-intro hidden text-slate-300 md:block">
-          <span className="auth-badge">Ruppee Pulse 3D</span>
+          <span className="auth-badge">Rupee Pulse 3D</span>
           <h1 className="mt-6 text-5xl font-black  text-white">Your money,<br /><span className="text-blue-400">in perspective.</span></h1>
           <p className="mt-5 max-w-md text-lg  text-slate-400">Create your account and explore a sharper, deeper view of the rupee market.</p>
           
         </div>
         <section className="auth-card w-full rounded-2xl p-8 sm:p-10">
         <Link to="/" className="mb-8 block text-center text-2xl font-bold">
-          Ruppee <span className="text-blue-500">Pulse</span>
+          Rupee <span className="text-blue-500">Pulse</span>
         </Link>
         <h1 className="text-3xl font-bold">Create your account</h1>
 

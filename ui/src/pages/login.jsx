@@ -52,13 +52,13 @@ const Login = () => {
 
       <div className="auth-layout">
         <div className="auth-intro hidden text-slate-300 md:block">
-          <span className="auth-badge">Ruppee Pulse</span>
+          <span className="auth-badge">Rupee Pulse</span>
           <h1 className="mt-6 text-5xl font-black  text-white">See the market<br /><span className="text-blue-400">from every angle.</span></h1>
           <p className="mt-5 max-w-md text-lg  text-slate-400">Your dashboard turns currency movement into a clear, dimensional financial picture.</p>
           </div>
         <section className="auth-card w-full rounded-2xl p-8 sm:p-10">
         <Link to="/" className="mb-8 block text-center text-2xl font-bold">
-          Ruppee <span className="text-blue-500">Pulse</span>
+          Rupee <span className="text-blue-500">Pulse</span>
         </Link>
         <h1 className="text-3xl font-bold">Welcome back</h1>
         <p className="mt-2 text-slate-400">Sign in to continue to your dashboard.</p>

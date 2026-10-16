@@ -1,4 +1,4 @@
-# Ruppee Pulse
+# Rupee Pulse
 
 Low-latency cryptocurrency trading & analytics dashboard for the Pakistani market.
 Live Binance spot prices in **USD** shown side-by-side with **PKR** valuations from live
@@ -73,7 +73,7 @@ with `hostname -I`). UI, API and WebSocket share that one port — a plain HTTP
 ## Project structure
 
 ```
-Ruppee Pulse/
+Ruppee Pulse/  # repo folder; display name "Rupee Pulse"
 ├── run.sh                     # starts backend (:8010) + frontend (:5173)
 ├── Dockerfile                 # multi-stage: npm build → python image serving API + UI
 ├── docker-compose.yml         # backend + redis (RP_REDIS_URL preconfigured)

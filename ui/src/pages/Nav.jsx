@@ -33,7 +33,7 @@ const Nav = () => {
       <div className="nav-3d__surface">
         <NavLink to="/" className="nav-3d__brand">
           <img src={logo} alt="" className="nav-3d__logo" />
-          <span>Ruppee <strong>Pulse</strong></span>
+          <span>Rupee <strong>Pulse</strong></span>
         </NavLink>
         <nav className="nav-3d__links">
           {links.map(({ to, label }) => (
