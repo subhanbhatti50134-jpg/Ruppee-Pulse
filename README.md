@@ -30,6 +30,18 @@ npm run dev
 First run creates the venv/DB automatically. To reset all data (users, orders, keys),
 stop the backend and delete `APis/data/ruppepulse.db`.
 
+### Open it on your phone (production mode)
+
+```bash
+cd ui && npm run build          # one bundle served by the backend
+# restart the backend on all interfaces:
+cd ../APis && ./venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8010
+```
+
+Then on any device on the same Wi-Fi: **http://\<your-LAN-IP\>:8010** (find the IP
+with `hostname -I`). UI, API and WebSocket share that one port — a plain HTTP
+"Not Secure" notice from the browser is expected on a LAN.
+
 ## What it does (proposal coverage)
 
 | Proposal item | Implementation |
