@@ -175,21 +175,21 @@ const Wallet = () => {
                   Unrealized{' '}
                   <span className={`font-mono font-semibold ${(portfolio?.unrealized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {(portfolio?.unrealized_pnl ?? 0) >= 0 ? '+' : ''}
-                    {fmtUsd(portfolio?.unrealized_pnl ?? 0)}
+                    {fmtUsd(portfolio?.unrealized_pnl ?? 0, 2)}
                   </span>
                 </span>
                 <span className="text-slate-400">
                   Realized{' '}
                   <span className={`font-mono font-semibold ${(portfolio?.realized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {(portfolio?.realized_pnl ?? 0) >= 0 ? '+' : ''}
-                    {fmtUsd(portfolio?.realized_pnl ?? 0)}
+                    {fmtUsd(portfolio?.realized_pnl ?? 0, 2)}
                   </span>
                 </span>
                 <span className="text-slate-400">
                   Total{' '}
                   <span className={`font-mono font-semibold ${(portfolio?.total_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {(portfolio?.total_pnl ?? 0) >= 0 ? '+' : ''}
-                    {fmtUsd(portfolio?.total_pnl ?? 0)}
+                    {fmtUsd(portfolio?.total_pnl ?? 0, 2)}
                   </span>
                 </span>
               </div>
@@ -247,13 +247,13 @@ const Wallet = () => {
                       <td className="py-2.5 pr-3 text-right font-mono">{fmtUsd(p.price_usd)}</td>
                       <td className="py-2.5 pr-3 text-right font-mono">{fmtUsd(p.value_usd)}</td>
                       <td className={`py-2.5 pr-3 text-right font-mono ${p.unrealized_pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {p.unrealized_pnl >= 0 ? '+' : ''}{fmtUsd(p.unrealized_pnl)}
+                        {p.unrealized_pnl >= 0 ? '+' : ''}{fmtUsd(p.unrealized_pnl, 2)}
                         {p.unrealized_pnl_pct != null && (
                           <span className="ml-1 text-xs">({p.unrealized_pnl_pct >= 0 ? '+' : ''}{p.unrealized_pnl_pct}%)</span>
                         )}
                       </td>
                       <td className={`py-2.5 text-right font-mono ${p.realized_pnl >= 0 ? 'text-emerald-400/80' : 'text-red-400/80'}`}>
-                        {p.realized_pnl ? `${p.realized_pnl >= 0 ? '+' : ''}${fmtUsd(p.realized_pnl)}` : '—'}
+                        {p.realized_pnl ? `${p.realized_pnl >= 0 ? '+' : ''}${fmtUsd(p.realized_pnl, 2)}` : '—'}
                       </td>
                     </tr>
                   ))}

@@ -1,8 +1,10 @@
 export const fmtUsd = (value, digits) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '—'
   const n = Number(value)
-  const d = digits ?? (n >= 1000 ? 2 : n >= 1 ? 3 : n >= 0.01 ? 5 : 7)
-  return `$${n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })}`
+  const a = Math.abs(n) // magnitude tiers must ignore the sign (-0.19 >= 0.01 is false)
+  const d = digits ?? (a >= 1000 ? 2 : a >= 1 ? 3 : a >= 0.01 ? 5 : 7)
+  const body = a.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
+  return `${n < 0 ? '-$' : '$'}${body}`
 }
 
 export const fmtNum = (value, digits) => {

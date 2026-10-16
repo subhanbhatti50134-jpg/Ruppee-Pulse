@@ -13,24 +13,28 @@ const Trade = () => {
   const { selectedSymbol, tickers, wsConnected } = useMarket()
   const [interval_, setInterval_] = useState('1h')
   const [openOrders, setOpenOrders] = useState([])
+  const [positions, setPositions] = useState([])
   const [history, setHistory] = useState([])
   const [balances, setBalances] = useState(null)
   const [keysState, setKeysState] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [closing, setClosing] = useState(null)
 
   const load = useCallback(async () => {
     try {
-      const [open, hist, bal, keys] = await Promise.all([
+      const [open, hist, bal, keys, port] = await Promise.all([
         api('/api/trade/orders'),
         api('/api/trade/history'),
         api('/api/trade/balances'),
         api('/api/trade/keys'),
+        api('/api/trade/portfolio'),
       ])
       setOpenOrders(open.orders || [])
       setHistory(hist.orders || [])
       setBalances(bal)
       setKeysState(keys)
+      setPositions((port.positions || []).filter((p) => p.qty > 1e-12))
       setError('')
     } catch (err) {
       setError(err.message)
@@ -61,6 +65,56 @@ const Trade = () => {
   }
 
   const ticker = tickers[selectedSymbol]
+
+  // Live mark for any symbol (position or open order).
+  const markOf = (symbol) => tickers[symbol]?.price ?? null
+
+  const positionPnl = (p) => {
+    const mark = markOf(`${p.asset}USDT`) ?? p.price_usd
+    if (!mark || !p.avg_cost) return { mark, pnl: p.unrealized_pnl ?? 0, pct: p.unrealized_pnl_pct }
+    const pnl = (mark - p.avg_cost) * p.qty
+    return { mark, pnl, pct: (mark / p.avg_cost - 1) * 100 }
+  }
+
+  const orderPnl = (o) => {
+    const mark = markOf(o.symbol)
+    const ref = o.price || o.avg_price
+    if (!mark || !ref || !o.quantity) return null
+    const raw = o.side === 'BUY' ? (mark - ref) * o.quantity : (ref - mark) * o.quantity
+    return raw
+  }
+
+  // Two-step close so a stray click never dumps a live position.
+  const closePosition = async (p) => {
+    if (closing !== p.asset) {
+      setClosing(p.asset)
+      setTimeout(() => setClosing((cur) => (cur === p.asset ? null : cur)), 4000)
+      return
+    }
+    setClosing(null)
+    setNotice('')
+    setError('')
+    const held = balances?.balances.find((b) => b.asset === p.asset)
+    const qty = held ? held.free : p.qty
+    try {
+      const res = await api('/api/trade/order', {
+        method: 'POST',
+        body: { symbol: `${p.asset}USDT`, side: 'SELL', type: 'MARKET', quantity: qty, mode: 'auto' },
+      })
+      const order = res.order
+      const gain = p.avg_cost ? (order.avg_price - p.avg_cost) * order.quantity : 0
+      setNotice(
+        `Closed ${p.asset}: sold ${fmtNum(order.quantity, 6)} @ ${fmtUsd(order.avg_price)} — ` +
+          `${gain >= 0 ? '+' : ''}${fmtUsd(gain, 2)} ${gain >= 0 ? 'profit' : 'loss'} realized.`,
+      )
+      window.dispatchEvent(new Event('rp:order-placed'))
+      load()
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  const openPnl = positions.reduce((sum, p) => sum + positionPnl(p).pnl, 0)
 
   const statusColor = (status) =>
     status === 'FILLED' ? 'text-emerald-400'
@@ -156,9 +210,88 @@ const Trade = () => {
 
         <section className="col-span-12">
           <div className="rounded-xl border border-gray-700 bg-[#0d141d] p-4">
-            <div className="mb-3 flex items-center justify-between border-b border-gray-800 pb-3">
-              <h2 className="text-lg font-semibold">OPEN ORDERS</h2>
-              <span className="text-xs text-slate-500">{openOrders.length} open</span>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-gray-800 pb-3">
+              <h2 className="text-lg font-semibold">POSITIONS &amp; OPEN ORDERS</h2>
+              <div className="flex items-center gap-3 text-xs text-slate-500">
+                <span>{positions.length} position{positions.length === 1 ? '' : 's'}</span>
+                <span>{openOrders.length} open order{openOrders.length === 1 ? '' : 's'}</span>
+                {positions.length > 0 && (
+                  <span className="font-mono font-semibold">
+                    open P&amp;L{' '}
+                    <span className={openPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                      {openPnl >= 0 ? '+' : ''}{fmtUsd(openPnl, 2)}
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="mb-1 text-xs uppercase tracking-wide text-slate-500">
+              Your positions — profit updates live
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800">
+                    <th className={th}>Asset</th>
+                    <th className={`${th} text-right`}>Quantity</th>
+                    <th className={`${th} text-right`}>Avg cost</th>
+                    <th className={`${th} text-right`}>Mark</th>
+                    <th className={`${th} text-right`}>Value</th>
+                    <th className={`${th} text-right`}>Profit</th>
+                    <th className={`${th} text-right`}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-4 text-center text-xs text-slate-500">
+                        No open positions — anything you buy shows up here with live profit.
+                      </td>
+                    </tr>
+                  )}
+                  {positions.map((p) => {
+                    const { mark, pnl, pct } = positionPnl(p)
+                    const value = mark * p.qty
+                    const confirming = closing === p.asset
+                    return (
+                      <tr key={p.asset} className="border-b border-gray-800/60 hover:bg-slate-800/40">
+                        <td className="px-3 py-2 font-semibold">{p.asset}</td>
+                        <td className="px-3 py-2 text-right font-mono">{fmtNum(p.qty, 6)}</td>
+                        <td className="px-3 py-2 text-right font-mono text-slate-400">{fmtUsd(p.avg_cost)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{fmtUsd(mark)}</td>
+                        <td className="px-3 py-2 text-right font-mono">{fmtUsd(value)}</td>
+                        <td className={`px-3 py-2 text-right font-mono font-semibold ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {pnl >= 0 ? '+' : ''}{fmtUsd(pnl, 2)}
+                          {pct != null && (
+                            <span className="ml-1 text-xs font-normal">({fmtPctText(pct)})</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => closePosition(p)}
+                            className={`rounded-md px-3 py-1 text-xs font-semibold transition ${
+                              confirming
+                                ? 'bg-amber-600 text-white hover:bg-amber-500'
+                                : pnl >= 0
+                                  ? 'bg-emerald-900/60 text-emerald-300 hover:bg-emerald-800'
+                                  : 'bg-slate-700 text-slate-200 hover:bg-slate-600'
+                            }`}
+                          >
+                            {confirming ? 'Confirm sell?' : pnl >= 0 ? 'Take profit' : 'Close'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-5 mb-1 flex items-center justify-between">
+              <div className="text-xs uppercase tracking-wide text-slate-500">Open (limit) orders</div>
+              <div className="text-[11px] text-slate-600">Profit vs mark · cancel keeps you out of the fill</div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -169,7 +302,7 @@ const Trade = () => {
                     <th className={th}>Type</th>
                     <th className={`${th} text-right`}>Price</th>
                     <th className={`${th} text-right`}>Quantity</th>
-                    <th className={`${th} text-right`}>Total</th>
+                    <th className={`${th} text-right`}>Profit now</th>
                     <th className={th}>Mode</th>
                     <th className={th}>Placed</th>
                     <th className={`${th} text-right`}>Action</th>
@@ -179,14 +312,18 @@ const Trade = () => {
                   {openOrders.length === 0 && (
                     <tr><td colSpan={9} className="px-3 py-5 text-center text-slate-500">No open orders.</td></tr>
                   )}
-                  {openOrders.map((o) => (
+                  {openOrders.map((o) => {
+                    const pnl = orderPnl(o)
+                    return (
                     <tr key={o.id} className="border-b border-gray-800/60 hover:bg-slate-800/40">
                       <td className="px-3 py-2 font-semibold">{o.symbol}</td>
                       <td className={`px-3 py-2 font-semibold ${o.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{o.side}</td>
                       <td className="px-3 py-2 text-slate-400">{o.type}</td>
                       <td className="px-3 py-2 text-right font-mono">{o.price ? fmtUsd(o.price) : 'MKT'}</td>
                       <td className="px-3 py-2 text-right font-mono">{fmtNum(o.quantity, 6)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{o.total ? fmtUsd(o.total) : '—'}</td>
+                      <td className={`px-3 py-2 text-right font-mono ${pnl == null ? 'text-slate-600' : pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {pnl == null ? '—' : `${pnl >= 0 ? '+' : ''}${fmtUsd(pnl, 2)}`}
+                      </td>
                       <td className="px-3 py-2">
                         <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold uppercase ${o.mode === 'demo' ? 'bg-slate-700 text-slate-300' : 'bg-emerald-900/60 text-emerald-300'}`}>
                           {o.mode}
@@ -203,7 +340,8 @@ const Trade = () => {
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
