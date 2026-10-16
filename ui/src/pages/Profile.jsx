@@ -14,6 +14,8 @@ const Profile = () => {
   const [form, setForm] = useState({ api_key: '', api_secret: '' })
   const [showSecret, setShowSecret] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testRes, setTestRes] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [pw, setPw] = useState({ current_password: '', new_password: '', confirm: '' })
@@ -80,9 +82,22 @@ const Profile = () => {
     try {
       await api('/api/trade/keys', { method: 'DELETE' })
       setNotice('API keys removed. You are back in demo mode.')
+      setTestRes(null)
       loadKeys()
     } catch (err) {
       setError(err.message)
+    }
+  }
+
+  const testKeys = async () => {
+    setTesting(true)
+    setTestRes(null)
+    try {
+      setTestRes(await api('/api/trade/keys/test', { method: 'POST' }))
+    } catch (err) {
+      setTestRes({ ok: false, detail: err.message })
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -297,12 +312,45 @@ const Profile = () => {
                   <span className="text-xs text-slate-500">since {timeAgo(keysState.created_at)}</span>
                   <button
                     type="button"
+                    onClick={testKeys}
+                    disabled={testing}
+                    className="rounded-md border border-slate-600 px-3 py-1 text-xs text-slate-300 transition hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {testing ? 'Testing…' : 'Test connection'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={removeKeys}
                     className="rounded-md bg-red-900/60 px-3 py-1 text-xs font-semibold text-red-300 hover:bg-red-800"
                   >
                     Remove keys
                   </button>
                 </div>
+              </div>
+            )}
+
+            {testRes && (
+              <div
+                className={`mb-4 rounded-lg border p-4 text-sm ${
+                  testRes.ok
+                    ? 'border-emerald-700/50 bg-emerald-950/20 text-emerald-100'
+                    : 'border-red-700/50 bg-red-950/20 text-red-200'
+                }`}
+              >
+                {testRes.ok ? (
+                  <ul className="space-y-1">
+                    <li><b>Valid key</b> — Binance account reachable (read-only check, no order placed).</li>
+                    <li>Spot trading: <b>{testRes.can_trade ? 'enabled' : 'disabled'}</b>
+                      {!testRes.can_trade && ' — turn on “Spot & Margin Trading” for this key.'}
+                    </li>
+                    <li>Withdrawals: <b>{testRes.can_withdraw ? 'ON — turn this OFF now' : 'off (recommended)'}</b>
+                      {testRes.can_withdraw && ' — this app never needs withdrawal permission.'}
+                    </li>
+                    <li>Funded assets: {testRes.nonzero_balances} · permissions: {testRes.permissions.join(', ') || '—'}</li>
+                  </ul>
+                ) : (
+                  <p><b>Test failed:</b> {testRes.detail}</p>
+                )}
               </div>
             )}
 
@@ -361,6 +409,19 @@ const Profile = () => {
                 with virtual funds so the whole workflow stays testable.
               </p>
             </div>
+
+            {keysState?.configured && (
+              <div className="mt-4 rounded-lg border border-amber-700/40 bg-amber-950/20 p-4 text-xs text-amber-100/90">
+                <p className="font-semibold text-amber-300">Going live safely — first-trade checklist</p>
+                <ol className="mt-2 list-inside list-decimal space-y-1">
+                  <li>Keep key permissions to Reading + Spot Trading only — Withdrawals must stay OFF.</li>
+                  <li>Run <b>Test connection</b> above and fix anything it flags before trading.</li>
+                  <li>Place one tiny market order first (about $10) from the Trade ticket.</li>
+                  <li>Confirm it in Order History and check its P&amp;L before scaling up.</li>
+                  <li>Remove the keys any time to drop straight back to demo mode.</li>
+                </ol>
+              </div>
+            )}
           </div>
         </section>
       </div>

@@ -138,6 +138,33 @@ async def _live_open_orders(user: dict) -> list[dict]:
     ]
 
 
+async def test_live_keys(user: dict) -> dict:
+    """Validate stored keys against Binance and report account permissions.
+
+    Uses GET /api/v3/account only (read permission) — no order is placed.
+    """
+    keys = db.get_api_keys(user["id"])
+    if not keys:
+        raise ValueError("No API keys configured")
+    api_key = decrypt_secret(keys["encrypted_key"])
+    api_secret = decrypt_secret(keys["encrypted_secret"])
+    account = await signed_request(api_key, api_secret, "GET", "/api/v3/account")
+    funded = [
+        b
+        for b in account.get("balances", [])
+        if float(b.get("free") or 0) + float(b.get("locked") or 0) > 1e-12
+    ]
+    return {
+        "ok": True,
+        "can_trade": bool(account.get("canTrade")),
+        "can_withdraw": bool(account.get("canWithdraw")),
+        "can_deposit": bool(account.get("canDeposit")),
+        "permissions": list(account.get("permissions") or []),
+        "nonzero_balances": len(funded),
+        "ts": time.time(),
+    }
+
+
 async def place_live_order(user: dict, req) -> dict:
     keys = db.get_api_keys(user["id"])
     if not keys:

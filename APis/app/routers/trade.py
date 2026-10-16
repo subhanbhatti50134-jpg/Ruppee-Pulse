@@ -108,3 +108,14 @@ def delete_keys(request: Request):
     user = get_current_user(request)
     db.delete_api_keys(user["id"])
     return {"configured": False}
+
+
+@router.post("/keys/test")
+async def test_keys(request: Request):
+    user = get_current_user(request)
+    try:
+        return await trade.test_live_keys(user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Connection test failed — {exc}") from exc

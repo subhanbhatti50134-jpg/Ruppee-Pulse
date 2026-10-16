@@ -94,6 +94,51 @@ def test_history_attributes_realized_pnl_per_trade(client, user, tickers, pkr_ra
     assert port["realized_pnl"] == sum(o["pnl"] for o in hist if o["pnl"] is not None)
 
 
+def test_keys_connection_test(client, user, tickers, pkr_rate, monkeypatch):
+    c = user["client"]
+    # before keys exist -> clear 400
+    assert c.post("/api/trade/keys/test").status_code == 400
+
+    res = c.post("/api/trade/keys", json={"api_key": "k" * 24, "api_secret": "s" * 24})
+    assert res.status_code == 200
+
+    import app.trade as trade_mod
+
+    async def fake_signed(api_key, api_secret, method, path, params=None):
+        assert path == "/api/v3/account"  # read-only check, never an order
+        return {
+            "canTrade": True,
+            "canWithdraw": False,
+            "canDeposit": True,
+            "permissions": ["SPOT"],
+            "balances": [
+                {"asset": "USDT", "free": "100.0", "locked": "0"},
+                {"asset": "BTC", "free": "0", "locked": "0"},
+            ],
+        }
+
+    monkeypatch.setattr(trade_mod, "signed_request", fake_signed)
+    res = c.post("/api/trade/keys/test")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["ok"] is True
+    assert body["can_trade"] is True
+    assert body["can_withdraw"] is False
+    assert body["permissions"] == ["SPOT"]
+    assert body["nonzero_balances"] == 1
+
+    # a Binance-side rejection surfaces as a 400 with the error text
+    from app.binance_stream import BinanceAPIError
+
+    async def reject(*args, **kwargs):
+        raise BinanceAPIError(-2015, "Invalid API-key, IP, or permissions")
+
+    monkeypatch.setattr(trade_mod, "signed_request", reject)
+    res = c.post("/api/trade/keys/test")
+    assert res.status_code == 400
+    assert "-2015" in res.json()["detail"]
+
+
 def test_order_history_and_reset(client, user, tickers, pkr_rate):
     c = user["client"]
     c.post(
