@@ -368,6 +368,7 @@ const Trade = () => {
                       total: o.total ?? '',
                       status: o.status,
                       mode: o.mode,
+                      pnl: o.pnl ?? '',
                       created_at: new Date(o.created_at * 1000).toISOString(),
                     })),
                   )
@@ -386,6 +387,7 @@ const Trade = () => {
                     <th className={th}>Type</th>
                     <th className={`${th} text-right`}>Qty</th>
                     <th className={`${th} text-right`}>Avg price</th>
+                    <th className={`${th} text-right`}>P&L</th>
                     <th className={th}>Status</th>
                     <th className={th}>Mode</th>
                     <th className={th}>When</th>
@@ -393,7 +395,7 @@ const Trade = () => {
                 </thead>
                 <tbody>
                   {history.length === 0 && (
-                    <tr><td colSpan={8} className="px-3 py-5 text-center text-slate-500">No orders yet — place one from the ticket.</td></tr>
+                    <tr><td colSpan={9} className="px-3 py-5 text-center text-slate-500">No orders yet — place one from the ticket.</td></tr>
                   )}
                   {history.map((o) => (
                     <tr key={o.id} className="border-b border-gray-800/60 hover:bg-slate-800/40">
@@ -402,6 +404,15 @@ const Trade = () => {
                       <td className="px-3 py-2 text-slate-400">{o.type}</td>
                       <td className="px-3 py-2 text-right font-mono">{fmtNum(o.quantity, 6)}</td>
                       <td className="px-3 py-2 text-right font-mono">{o.avg_price ? fmtUsd(o.avg_price) : o.price ? fmtUsd(o.price) : '—'}</td>
+                      <td className="px-3 py-2 text-right font-mono">
+                        {o.pnl == null ? (
+                          <span className="text-slate-600">—</span>
+                        ) : (
+                          <span className={o.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                            {o.pnl >= 0 ? '+' : ''}{fmtUsd(o.pnl, 2)}
+                          </span>
+                        )}
+                      </td>
                       <td className={`px-3 py-2 font-semibold ${statusColor(o.status)}`}>{o.status}</td>
                       <td className="px-3 py-2 text-xs uppercase text-slate-500">{o.mode}</td>
                       <td className="px-3 py-2 text-xs text-slate-500">{timeAgo(o.created_at)}</td>

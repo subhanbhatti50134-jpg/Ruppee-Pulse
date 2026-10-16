@@ -61,6 +61,39 @@ def test_portfolio_avg_cost_realized_and_allocation(client, user, tickers, pkr_r
     assert 99.0 <= total_weight <= 101.0
 
 
+def test_history_attributes_realized_pnl_per_trade(client, user, tickers, pkr_rate):
+    c = user["client"]
+    from app.binance_stream import TICKER_CACHE_KEY
+    from app.cache import cache
+
+    # buy 2 ETH @ 2000 (seeded ticker), then realize one win and one loss
+    assert c.post(
+        "/api/trade/order",
+        json={"symbol": "ETHUSDT", "side": "BUY", "type": "MARKET", "quantity": 2, "mode": "demo"},
+    ).status_code == 200
+    tickers["ETHUSDT"] = _ticker("ETHUSDT", 2100.0)
+    cache.set(TICKER_CACHE_KEY, tickers, ttl=120)
+    assert c.post(
+        "/api/trade/order",
+        json={"symbol": "ETHUSDT", "side": "SELL", "type": "MARKET", "quantity": 1, "mode": "demo"},
+    ).status_code == 200
+    tickers["ETHUSDT"] = _ticker("ETHUSDT", 1900.0)
+    cache.set(TICKER_CACHE_KEY, tickers, ttl=120)
+    assert c.post(
+        "/api/trade/order",
+        json={"symbol": "ETHUSDT", "side": "SELL", "type": "MARKET", "quantity": 1, "mode": "demo"},
+    ).status_code == 200
+
+    hist = c.get("/api/trade/history").json()["orders"]
+    sells = sorted(o["pnl"] for o in hist if o["side"] == "SELL")
+    assert sells == [-100.0, 100.0]
+    assert all(o["pnl"] is None for o in hist if o["side"] == "BUY")
+
+    # per-trade P&L sums to the portfolio's realized total
+    port = c.get("/api/trade/portfolio").json()
+    assert port["realized_pnl"] == sum(o["pnl"] for o in hist if o["pnl"] is not None)
+
+
 def test_order_history_and_reset(client, user, tickers, pkr_rate):
     c = user["client"]
     c.post(

@@ -285,6 +285,7 @@ const Wallet = () => {
                       total: o.total ?? '',
                       status: o.status,
                       mode: o.mode,
+                      pnl: o.pnl ?? '',
                       created_at: new Date(o.created_at * 1000).toISOString(),
                     })),
                   )
@@ -302,13 +303,14 @@ const Wallet = () => {
                     <th className="py-2 pr-3">Symbol</th>
                     <th className="py-2 pr-3">Side</th>
                     <th className="py-2 pr-3 text-right">Total</th>
+                    <th className="py-2 pr-3 text-right">P&L</th>
                     <th className="py-2 pr-3">Status</th>
                     <th className="py-2 text-right">When</th>
                   </tr>
                 </thead>
                 <tbody>
                   {history.length === 0 && (
-                    <tr><td colSpan={6} className="py-5 text-center text-slate-500">No activity yet.</td></tr>
+                    <tr><td colSpan={7} className="py-5 text-center text-slate-500">No activity yet.</td></tr>
                   )}
                   {history.slice(0, 15).map((o) => (
                     <tr key={o.id} className="border-b border-gray-800/60 hover:bg-slate-800/40">
@@ -316,6 +318,15 @@ const Wallet = () => {
                       <td className="py-2 pr-3 font-semibold">{o.symbol}</td>
                       <td className={`py-2 pr-3 font-semibold ${o.side === 'BUY' ? 'text-emerald-400' : 'text-red-400'}`}>{o.side}</td>
                       <td className="py-2 pr-3 text-right font-mono">{o.total ? fmtUsd(o.total) : '—'}</td>
+                      <td className="py-2 pr-3 text-right font-mono">
+                        {o.pnl == null ? (
+                          <span className="text-slate-600">—</span>
+                        ) : (
+                          <span className={o.pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                            {o.pnl >= 0 ? '+' : ''}{fmtUsd(o.pnl, 2)}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 pr-3 text-xs font-semibold text-slate-400">{o.status}</td>
                       <td className="py-2 text-right text-xs text-slate-500">{timeAgo(o.created_at)}</td>
                     </tr>

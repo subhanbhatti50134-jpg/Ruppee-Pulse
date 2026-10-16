@@ -466,23 +466,39 @@ async def get_open_orders(user: dict) -> list[dict]:
 
 
 def get_order_history(user: dict, limit: int = 50) -> list[dict]:
-    return [_order_view(o) for o in db.list_orders(user["id"], limit=limit)]
+    """History rows, with realized P&L attributed to each filled sell."""
+    views = [_order_view(o) for o in db.list_orders(user["id"], limit=limit)]
+    _, per_sell = _walk_fills(_filled_orders(user["id"]))
+    for v in views:
+        if v["status"] == "FILLED" and v["side"] == "SELL":
+            v["pnl"] = round(per_sell.get(v["id"], 0.0), 6)
+        else:
+            v["pnl"] = None
+    return views
 
 
 # ---------------------------------------------------------------- portfolio PnL
 
 
-def compute_portfolio(user: dict, mode: str) -> dict:
-    """Average-cost PnL per asset: realized + unrealized + allocation weights."""
-    orders = [
-        o for o in db.list_orders(user["id"], limit=1000)
+def _filled_orders(user_id: str) -> list[dict]:
+    fills = [
+        o
+        for o in db.list_orders(user_id, limit=1000)
         if o["status"] == "FILLED" and o.get("avg_price")
     ]
-    orders.sort(key=lambda o: o["created_at"])
+    fills.sort(key=lambda o: o["created_at"])
+    return fills
 
+
+def _walk_fills(fills: list[dict]) -> tuple[dict[str, dict], dict[str, float]]:
+    """Chronological average-cost walk over filled orders.
+
+    Returns books per asset plus realized P&L attributed to each sell order id,
+    so per-trade profit (history) and aggregate portfolio P&L can never disagree.
+    """
     books: dict[str, dict] = {}
-    realized = 0.0
-    for o in orders:
+    per_sell: dict[str, float] = {}
+    for o in fills:
         base = o["symbol"][: -len("USDT")] if o["symbol"].endswith("USDT") else o["symbol"]
         book = books.setdefault(base, {"qty": 0.0, "cost": 0.0, "realized": 0.0})
         price = o["avg_price"]
@@ -497,12 +513,19 @@ def compute_portfolio(user: dict, mode: str) -> dict:
             avg = (book["cost"] / book["qty"]) if book["qty"] > 1e-12 else price
             gain = (price - avg) * sell_qty
             book["realized"] += gain
-            realized += gain
+            per_sell[o["id"]] = gain
             book["qty"] -= sell_qty
             book["cost"] = avg * book["qty"]
             if book["qty"] <= 1e-12:
                 book["qty"] = 0.0
                 book["cost"] = 0.0
+    return books, per_sell
+
+
+def compute_portfolio(user: dict, mode: str) -> dict:
+    """Average-cost PnL per asset: realized + unrealized + allocation weights."""
+    books, _ = _walk_fills(_filled_orders(user["id"]))
+    realized = sum(b["realized"] for b in books.values())
 
     tickers = get_tickers()
     rate = _pkr_rate()
