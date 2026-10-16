@@ -43,11 +43,13 @@ stop the backend and delete `APis/data/ruppepulse.db`.
 | AES-256 API-key storage | `APis/app/security.py` — AES-256-GCM + PBKDF2 (200k), master key in `APis/data/master.key` |
 | Arbitrage & premium alerts | `APis/app/alerts.py` — auto alerts when premium deviates ±1.5 pts from its 30-pt moving average + user threshold rules; pushed as toast pop-ups and stored in Alert Feed |
 | In-memory cache (Redis role) | `APis/app/cache.py` — TTL cache absorbing repeated reads so Binance rate limits aren't burned |
-| Candlestick charts | `lightweight-charts` v5 in `ui/src/components/CandleChart.jsx` (candles + volume + live tick folding) |
+| Candlestick charts | `lightweight-charts` v5 in `ui/src/components/CandleChart.jsx` (candles + volume + live tick folding, MA7/25/99 overlays and a synced RSI(14) subchart, 1m–1d intervals) |
 | Auth | Register/login/logout against FastAPI, PBKDF2-hashed passwords, bearer sessions, password change (revokes other sessions) |
-| Stop-loss / take-profit | `APis/app/stops.py` — conditional orders watched every 5s, fired as market orders at the trigger |
+| Stop-loss / take-profit | `APis/app/stops.py` — conditional orders watched every 5s, fired as market orders at the trigger; single stops or **OCO** take-profit/stop-loss pairs (one fills → the sibling cancels) and **stop-limit** execution (trigger places a limit order instead of market) |
 | Position sizing & PnL | Trade-page calculator (qty/notional/R:R) + `/api/trade/portfolio` average-cost realized/unrealized PnL, shown live per position on Trade with take-profit/close |
 | Order book | `/api/market/depth` (Binance depth proxy, 2s cache) rendered as a live ladder on Trade |
+| Live keys | Profile → *Test connection* probes the keys against read-only `/api/v3/account` (masked result, spot-trading flag, funded-assets list) before you ever send an order |
+| Growth tracking | Wallet → *Portfolio growth* replays your fill history into an equity curve (`/api/trade/equity`), anchored to current balances |
 
 > **Stack note:** the written proposal specifies Node.js/Express; per your choice this
 > backend is implemented with **Python FastAPI** in the existing `APis/venv`, keeping the
@@ -76,15 +78,15 @@ Ruppee Pulse/
 │   │   ├── db.py              # SQLite: users, sessions, keys, orders, stops, alerts
 │   │   ├── ws.py              # /ws hub (tickers, p2p, alerts fan-out)
 │   │   └── routers/           # auth, market, p2p, trade, alerts, stops, telegram
-│   ├── tests/                 # pytest suite (44 tests, no network needed)
+│   ├── tests/                 # pytest suite (49 tests, no network needed)
 │   ├── data/                  # SQLite DB + master.key (auto-created)
 │   ├── requirements.txt / requirements-dev.txt
 │   ├── pyproject.toml         # ruff + pytest config
 │   └── .env.example
 └── ui/                        # React + Vite + Tailwind
     └── src/
-        ├── context/MarketContext.jsx   # WebSocket state for the whole app
-        ├── components/                 # CandleChart, OrderBook, StopsPanel, PositionCalculator, ...
+        ├── context/MarketContext.jsx   # WebSocket state for the whole app (coalesced commits)
+        ├── components/                 # CandleChart, EquityChart, OrderBook, StopsPanel, PositionCalculator, ...
         └── pages/                      # Overview, Market, Trade, Wallet, Analytics, Profile, auth
 ```
 
@@ -94,15 +96,21 @@ Ruppee Pulse/
 2. **Overview** — live dual-currency ticker, candlestick chart, quick trade ticket,
    P2P funding-rate table, spread & premium panel.
 3. **Market** — sortable/filterable ticker table with USD + PKR columns.
-4. **Trade** — full chart, order ticket (market/limit, buy/sell), live order book,
-   stop-loss / take-profit panel, position calculator, positions with live profit,
-   open orders with cancel, history, balances.
+4. **Trade** — full chart with MA/RSI indicators and 1m–1d intervals, order ticket
+   (market/limit, buy/sell), live order book, stop-loss / take-profit panel with
+   **OCO pairs** and **stop-limit** execution, position calculator, positions with
+   live profit, open orders with cancel, history with per-trade P&L, balances.
 5. **Wallet** — *Positions & PnL* (avg cost, realized/unrealized, allocation bars),
-   portfolio value in USD & PKR, activity feed, demo-fund reset.
+   *Portfolio growth* equity curve, portfolio value in USD & PKR, activity feed,
+   demo-fund reset.
 6. **Analytics** — premium history chart with MA overlay, arbitrage scanner, live
    P2P ads, premium by payment method, threshold & price alert rules, alert feed.
-7. **Profile** — connect/remove Binance API keys (AES-256-GCM encrypted), change
-   password, Telegram alert setup, security info.
+7. **Profile** — connect/remove Binance API keys (AES-256-GCM encrypted), **test
+   connection** with a first-trade safety checklist, change password, Telegram
+   alert setup, security info.
+
+On phones (under 700px) the nav collapses to a burger menu with the same links
+and a Log out entry; every page is overflow-free at 390×844.
 
 ### Watching the market
 
@@ -148,7 +156,9 @@ GET  /api/p2p/rates                       GET /api/p2p/analytics
 GET  /api/p2p/ads?side=&limit=            GET /api/p2p/arbitrage
 POST /api/trade/order                     GET  /api/trade/orders|history|balances
 DEL  /api/trade/orders/{id}               POST /api/trade/demo/reset
-GET/POST/DELETE /api/trade/keys           GET/POST /api/alerts, DELETE /api/alerts/{id}
+GET/POST/DELETE /api/trade/keys             POST /api/trade/keys/test (read-only probe)
+GET/POST /api/alerts, DELETE /api/alerts/{id}
+GET  /api/trade/equity                      (equity curve for the growth chart)
 GET/POST /api/watchlist, DEL /api/watchlist/{symbol}
 GET/POST /api/price-alerts, DEL /api/price-alerts/{id}, POST /api/price-alerts/{id}/toggle
 GET/POST /api/stops, DEL /api/stops/{id}      GET /api/trade/portfolio
@@ -189,8 +199,9 @@ GET  /api/health                          WS   /ws  (snapshot + tickers + p2p + 
 
 - **Tests** — `APis/tests/` (pytest): auth + password change, market/depth,
   demo orders, portfolio math, stop lifecycle (incl. engine fire/fail paths),
-  alerts/watchlist, cache behavior, arbitrage math, SPA serving. Seeded tickers
-  keep the suite offline — `cd APis && ./venv/bin/pytest` → 44 passing.
+  alerts/watchlist, cache behavior, arbitrage math, OCO/stop-limit, equity curve,
+  keys-test, SPA serving. Seeded tickers keep the suite offline —
+  `cd APis && ./venv/bin/pytest` → 49 passing.
 - **Lint** — ruff config in `APis/pyproject.toml`: `./venv/bin/ruff check app tests`.
 - **Password change** — `POST /api/auth/change-password` verifies the current
   password (PBKDF2), stores the new one, and revokes every *other* session.
@@ -200,6 +211,33 @@ GET  /api/health                          WS   /ws  (snapshot + tickers + p2p + 
   process, no nginx needed.
 - **Docker** — `docker compose up --build` runs backend + Redis; `RP_REDIS_URL`
   is preconfigured, data persists in `./APis/data` via volume mount.
+
+### Phase 5 — live trading, growth & polish
+
+- **Live-key safety** — `POST /api/trade/keys/test` probes stored keys against
+  read-only `/api/v3/account`; Profile shows the masked key, spot-trading flag,
+  withdrawal warning, funded assets, and a *going-live checklist* (read+trade
+  keys only, no withdrawal permission, start small, test one order). Binance
+  rejections are surfaced verbatim (e.g. `-2014 API-key format invalid`).
+- **Portfolio growth** — `GET /api/trade/equity` unwinds your fill history to an
+  anchored start state, marks between trades at fill prices, and ends at the live
+  balance; Wallet charts the curve with change vs. first trade and realized P&L.
+- **OCO orders** — a take-profit and stop-loss can be armed as a linked pair
+  (shared `group_id`): when one executes, the engine cancels the sibling and
+  annotates the alert. **Stop-limit** triggers place a limit order (optionally
+  market-crossing) instead of a market dump. The stops panel switches between
+  Single and OCO modes with trigger/limit price inputs.
+- **Chart indicators** — MA7/25/99 overlays and an RSI(14) subchart
+  (70/30 guide lines, two-way sync with the price pane) fold live ticks between
+  fetches; toggled from the chart toolbar next to the interval buttons.
+- **Mobile** — nav collapses to a burger menu under 700px (dropdown with all
+  links + Log out, closes on navigation); all six routes verified overflow-free
+  at 390×844 via headless CDP.
+- **Speed** — `MarketContext` coalesces snapshot/tickers/P2P bursts into a
+  single 250ms flush and commits tickers only when rendered fields actually
+  changed (identical payloads keep their identity → no re-render); Market rows
+  and Trade's positions/open-orders/history tables are memoized with
+  value-based comparators so live ticks only touch the rows that moved.
 
 ## Quality & deployment
 
