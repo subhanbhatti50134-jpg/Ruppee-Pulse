@@ -5,6 +5,7 @@ import { useMarket } from '../context/MarketContext.jsx'
 import { fmtNum, fmtPct, fmtUsd, timeAgo } from '../lib/format.js'
 import { downloadCsv } from '../lib/csv.js'
 import { getCurrentUser } from './auth.js'
+import EquityChart from '../components/EquityChart.jsx'
 
 const Wallet = () => {
   const { buyRate, premium, tickers } = useMarket()
@@ -13,21 +14,24 @@ const Wallet = () => {
   const [portfolio, setPortfolio] = useState(null)
   const [history, setHistory] = useState([])
   const [keysState, setKeysState] = useState(null)
+  const [equity, setEquity] = useState(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
     try {
-      const [bal, hist, keys, port] = await Promise.all([
+      const [bal, hist, keys, port, eq] = await Promise.all([
         api('/api/trade/balances'),
         api('/api/trade/history'),
         api('/api/trade/keys'),
         api('/api/trade/portfolio'),
+        api('/api/trade/equity'),
       ])
       setBalances(bal)
       setHistory(hist.orders || [])
       setKeysState(keys)
       setPortfolio(port)
+      setEquity(eq)
       setError('')
     } catch (err) {
       setError(err.message)
@@ -91,6 +95,44 @@ const Wallet = () => {
       )}
 
       <div className="grid grid-cols-12 gap-4">
+        <section className="col-span-12">
+          <div className="rounded-xl border border-gray-700 bg-[#0d141d] p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-gray-800 pb-3">
+              <div className="flex items-baseline gap-3">
+                <h2 className="text-lg font-semibold">PORTFOLIO GROWTH</h2>
+                <span className="font-mono text-2xl font-bold">
+                  {equity ? fmtUsd(equity.current_equity) : '—'}
+                </span>
+                <span
+                  className={`font-mono text-sm font-semibold ${
+                    (equity?.change ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'
+                  }`}
+                >
+                  {equity ? `${equity.change >= 0 ? '+' : ''}${fmtUsd(equity.change, 2)} (${fmtPct(equity.change_pct ?? 0)})` : '—'}
+                </span>
+              </div>
+              <div className="flex gap-4 text-xs text-slate-400">
+                <span>
+                  Realized{' '}
+                  <b className={`font-mono ${(equity?.realized_pnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {equity ? fmtUsd(equity.realized_pnl, 2) : '—'}
+                  </b>
+                </span>
+                <span>
+                  Since first trade <b className="font-mono text-slate-200">{equity ? fmtUsd(equity.start_equity) : '—'}</b>
+                </span>
+              </div>
+            </div>
+            {equity?.points?.length ? (
+              <EquityChart points={equity.points} height={240} up={(equity.change ?? 0) >= 0} />
+            ) : (
+              <div className="flex h-[240px] items-center justify-center text-sm text-slate-500">
+                No trades yet — your growth curve starts with your first fill.
+              </div>
+            )}
+          </div>
+        </section>
+
         <section className="col-span-12 lg:col-span-4">
           <div className="rounded-xl border border-gray-700 bg-[#0d141d] p-5">
             <h2 className="text-sm uppercase tracking-wide text-slate-500">Total portfolio value</h2>

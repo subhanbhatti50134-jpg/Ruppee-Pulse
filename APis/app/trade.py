@@ -624,3 +624,92 @@ async def get_portfolio(user: dict, mode: str) -> dict:
         "total_value_pkr": bal["total_pkr"],
         "pkr_rate": bal["pkr_rate"],
     }
+
+
+async def get_equity_curve(user: dict, mode: str, limit: int = 500) -> dict:
+    """Portfolio value over time.
+
+    Replays fill events forward from a start state derived by unwinding today's
+    balances, valuing each holding at its latest known fill price between trades
+    and marking the final point with live balance prices. Anchoring to actual
+    balances keeps deposits/resets/external moves correct by construction.
+    """
+    bal = await get_balances(user, mode)
+    usdt_end = 0.0
+    holdings_end: dict[str, float] = {}
+    for b in bal["balances"]:
+        qty = float(b["free"]) + float(b["locked"])
+        if b["asset"] == "USDT":
+            usdt_end = qty
+        elif qty > 1e-12:
+            holdings_end[b["asset"]] = qty
+    equity_end = float(bal["total_usd"] or 0.0)
+
+    events = _filled_orders(user["id"])
+    cash_delta = 0.0
+    qty_delta: dict[str, float] = {}
+    for o in events:
+        base = o["symbol"][: -len("USDT")] if o["symbol"].endswith("USDT") else o["symbol"]
+        price, qty = float(o["avg_price"]), float(o["quantity"])
+        if price <= 0 or qty <= 0:
+            continue
+        total = price * qty
+        cash_delta += total if o["side"] == "SELL" else -total
+        qty_delta[base] = qty_delta.get(base, 0.0) + (qty if o["side"] == "BUY" else -qty)
+
+    cash = usdt_end - cash_delta
+    holdings = {
+        a: holdings_end.get(a, 0.0) - qty_delta.get(a, 0.0)
+        for a in set(holdings_end) | set(qty_delta)
+    }
+
+    tickers = get_tickers()
+
+    def _live_price(asset: str) -> float:
+        if asset == "USDT":
+            return 1.0
+        return float(tickers.get(f"{asset}USDT", {}).get("price") or 0.0)
+
+    last_price = {a: _live_price(a) for a in holdings}
+
+    def _mark() -> float:
+        total = cash
+        for a, q in holdings.items():
+            if q > 1e-12:
+                total += q * (last_price.get(a, 0.0) or _live_price(a))
+        return total
+
+    points: list[dict] = []
+    for o in events:
+        base = o["symbol"][: -len("USDT")] if o["symbol"].endswith("USDT") else o["symbol"]
+        price, qty = float(o["avg_price"]), float(o["quantity"])
+        if price <= 0 or qty <= 0:
+            continue
+        total = price * qty
+        last_price[base] = price
+        if o["side"] == "BUY":
+            cash -= total
+            holdings[base] = holdings.get(base, 0.0) + qty
+        else:
+            cash += total
+            holdings[base] = holdings.get(base, 0.0) - qty
+        points.append({"ts": o["created_at"], "equity": round(_mark(), 6), "cash": round(cash, 6)})
+
+    last_ts = points[-1]["ts"] if points else 0.0
+    points.append({"ts": max(time.time(), last_ts + 1), "equity": round(equity_end, 6), "cash": round(usdt_end, 6)})
+    points = points[-max(limit, 2) :]
+
+    _, per_sell = _walk_fills(events)
+    realized = sum(per_sell.values())
+    start_equity = points[0]["equity"]
+    change = round(equity_end - start_equity, 6)
+    return {
+        "mode": mode,
+        "points": points,
+        "start_equity": start_equity,
+        "current_equity": round(equity_end, 6),
+        "change": change,
+        "change_pct": round(change / start_equity * 100, 3) if start_equity else None,
+        "realized_pnl": round(realized, 6),
+        "ts": time.time(),
+    }

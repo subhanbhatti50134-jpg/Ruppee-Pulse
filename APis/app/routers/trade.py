@@ -66,6 +66,16 @@ async def portfolio(request: Request):
         return await trade.get_portfolio(user, mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/equity")
+async def equity(request: Request):
+    user = get_current_user(request)
+    mode = "live" if db.get_api_keys(user["id"]) else "demo"
+    try:
+        return await trade.get_equity_curve(user, mode)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {exc}") from exc
 

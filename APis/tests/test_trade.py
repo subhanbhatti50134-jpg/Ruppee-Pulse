@@ -139,6 +139,48 @@ def test_keys_connection_test(client, user, tickers, pkr_rate, monkeypatch):
     assert "-2015" in res.json()["detail"]
 
 
+def test_equity_curve_replays_trades(client, user, tickers, pkr_rate):
+    c = user["client"]
+    from app.binance_stream import TICKER_CACHE_KEY
+    from app.cache import cache
+
+    # fresh demo account: single live point, no growth yet
+    eq = c.get("/api/trade/equity").json()
+    assert eq["current_equity"] == 100_000.0
+    assert len(eq["points"]) == 1
+    assert eq["change"] == 0
+
+    # buy 2 ETH @ 2000 (equity unchanged at fill valuation)
+    assert c.post(
+        "/api/trade/order",
+        json={"symbol": "ETHUSDT", "side": "BUY", "type": "MARKET", "quantity": 2, "mode": "demo"},
+    ).status_code == 200
+    # price rises to 2100 -> sell one (realizes +100)
+    tickers["ETHUSDT"] = _ticker("ETHUSDT", 2100.0)
+    cache.set(TICKER_CACHE_KEY, tickers, ttl=120)
+    assert c.post(
+        "/api/trade/order",
+        json={"symbol": "ETHUSDT", "side": "SELL", "type": "MARKET", "quantity": 1, "mode": "demo"},
+    ).status_code == 200
+    # price eases to 2050 -> final live mark differs from the last fill point
+    tickers["ETHUSDT"] = _ticker("ETHUSDT", 2050.0)
+    cache.set(TICKER_CACHE_KEY, tickers, ttl=120)
+
+    eq = c.get("/api/trade/equity").json()
+    assert eq["points"][0]["equity"] == 100_000.0  # post-buy, valued at fill
+    assert eq["points"][1]["equity"] == 100_200.0  # cash 98_100 + 1 ETH @ 2100
+    assert eq["points"][2]["equity"] == 100_150.0  # live mark: 98_100 + 1 ETH @ 2050
+    assert eq["current_equity"] == 100_150.0
+    assert eq["change"] == 150.0
+    assert eq["realized_pnl"] == 100.0
+    assert ts_strictly_increasing(eq["points"])
+
+
+def ts_strictly_increasing(points):
+    ts = [p["ts"] for p in points]
+    return all(b > a for a, b in zip(ts, ts[1:], strict=False))
+
+
 def test_order_history_and_reset(client, user, tickers, pkr_rate):
     c = user["client"]
     c.post(
