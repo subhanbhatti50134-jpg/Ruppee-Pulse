@@ -56,3 +56,6 @@ class StopOrderIn(BaseModel):
     quantity: float | None = Field(default=None, gt=0)
     quote_quantity: float | None = Field(default=None, gt=0)
     mode: str = Field(default="auto", pattern="^(auto|demo|live)$")
+    oco_trigger_price: float | None = Field(default=None, gt=0)
+    order_type: str = Field(default="MARKET", pattern="^(MARKET|LIMIT)$")
+    limit_price: float | None = Field(default=None, gt=0)

@@ -107,7 +107,10 @@ CREATE TABLE IF NOT EXISTS stop_orders (
     linked_order_id TEXT,
     error TEXT,
     created_at REAL NOT NULL,
-    triggered_at REAL
+    triggered_at REAL,
+    order_type TEXT NOT NULL DEFAULT 'MARKET',
+    limit_price REAL,
+    group_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alert_events_created ON alert_events(created_at DESC);
@@ -122,6 +125,16 @@ def get_conn() -> sqlite3.Connection:
         _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         _conn.row_factory = sqlite3.Row
         _conn.executescript(SCHEMA)
+        # additive column upgrades for databases created before these fields existed
+        for stmt in (
+            "ALTER TABLE stop_orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'MARKET'",
+            "ALTER TABLE stop_orders ADD COLUMN limit_price REAL",
+            "ALTER TABLE stop_orders ADD COLUMN group_id TEXT",
+        ):
+            try:
+                _conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass  # column already present
         _conn.commit()
     return _conn
 
@@ -627,6 +640,9 @@ def create_stop_order(
     quantity: float | None,
     quote_quantity: float | None,
     mode: str,
+    order_type: str = "MARKET",
+    limit_price: float | None = None,
+    group_id: str | None = None,
 ) -> dict:
     stop = {
         "id": uuid.uuid4().hex,
@@ -643,16 +659,20 @@ def create_stop_order(
         "error": None,
         "created_at": time.time(),
         "triggered_at": None,
+        "order_type": order_type,
+        "limit_price": limit_price,
+        "group_id": group_id,
     }
     with _lock:
         conn = get_conn()
         conn.execute(
             """INSERT INTO stop_orders (id, user_id, symbol, side, kind, trigger_price,
-               quantity, quote_quantity, mode, status, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,'PENDING',?)""",
+               quantity, quote_quantity, mode, status, created_at, order_type, limit_price, group_id)
+               VALUES (?,?,?,?,?,?,?,?,?,'PENDING',?,?,?,?)""",
             (
                 stop["id"], user_id, symbol, side, kind, trigger_price,
                 quantity, quote_quantity, mode, stop["created_at"],
+                order_type, limit_price, group_id,
             ),
         )
         conn.commit()
@@ -712,3 +732,18 @@ def delete_stop_order(user_id: str, stop_id: str) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
+
+
+def cancel_stop_group_siblings(user_id: str, group_id: str, exclude_stop_id: str) -> int:
+    """OCO: once one leg executes, cancel the other legs of the same group."""
+    if not group_id:
+        return 0
+    with _lock:
+        conn = get_conn()
+        cur = conn.execute(
+            "UPDATE stop_orders SET status = 'CANCELED', error = 'OCO: sibling triggered' "
+            "WHERE user_id = ? AND group_id = ? AND id != ? AND status = 'PENDING'",
+            (user_id, group_id, exclude_stop_id),
+        )
+        conn.commit()
+        return cur.rowcount

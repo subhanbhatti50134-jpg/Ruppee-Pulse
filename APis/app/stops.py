@@ -35,15 +35,19 @@ async def process_stop(stop: dict) -> None:
     if not user:
         db.finalize_stop_order(stop["id"], error="user gone")
         return
+    exec_type = stop.get("order_type") or "MARKET"
     req = SimpleNamespace(
         symbol=stop["symbol"],
         side=stop["side"],
-        type="MARKET",
+        type=exec_type,
         quantity=stop.get("quantity"),
         quote_quantity=stop.get("quote_quantity"),
-        price=None,
+        price=stop.get("limit_price") if exec_type == "LIMIT" else None,
         mode=stop.get("mode") or "auto",
     )
+    if exec_type == "LIMIT" and not req.price:
+        db.finalize_stop_order(stop["id"], error="stop-limit missing limit price")
+        return
     try:
         order = await place_order(user, req)
     except Exception as exc:
@@ -57,11 +61,14 @@ async def process_stop(stop: dict) -> None:
         )
         return
     db.finalize_stop_order(stop["id"], linked_order_id=order["id"])
+    canceled = db.cancel_stop_group_siblings(stop["user_id"], stop.get("group_id"), stop["id"])
+    exec_label = "limit" if exec_type == "LIMIT" else "market"
     verb = "filled" if order.get("status") == "FILLED" else order.get("status", "placed")
+    pair_note = f" · OCO canceled {canceled} sibling" + ("s" if canceled != 1 else "") if canceled else ""
     await alert_engine._emit(
         "stop",
         f"{stop['kind'].replace('_', ' ')} {stop['symbol']} @ {stop['trigger_price']}: "
-        f"{stop['side']} market {verb} (order {order['id'][:8]})",
+        f"{stop['side']} {exec_label} {verb} (order {order['id'][:8]}){pair_note}",
         {
             "stop_id": stop["id"],
             "order_id": order["id"],
@@ -70,10 +77,13 @@ async def process_stop(stop: dict) -> None:
             "kind": stop["kind"],
             "trigger_price": stop["trigger_price"],
             "status": order.get("status"),
+            "order_type": exec_type,
+            "group_id": stop.get("group_id"),
+            "canceled_siblings": canceled,
         },
         user_id=stop["user_id"],
     )
-    log.info("stop %s triggered -> %s", stop["id"], order["id"])
+    log.info("stop %s triggered -> %s (siblings canceled: %d)", stop["id"], order["id"], canceled)
 
 
 async def process_pending_stops() -> int:
