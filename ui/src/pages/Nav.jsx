@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import logo from '../assets/logo.svg'
-import { CiSearch } from 'react-icons/ci'
+import { CiSearch, CiMenuBurger, CiCircleRemove } from 'react-icons/ci'
 import '../css/nav.css'
 import { getCurrentUser, logoutUser } from './auth.js'
 
@@ -9,6 +9,7 @@ const Nav = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const user = getCurrentUser()
+  const [menuOpen, setMenuOpen] = useState(false)
   const links = [
     { to: '/overview', label: 'Overview' },
     { to: '/market', label: 'Market' },
@@ -57,7 +58,7 @@ const Nav = () => {
         {user ? (
           <div className="nav-3d__account">
             <span className="nav-3d__greeting">Hi, {user.name}</span>
-            <button type="button" onClick={handleLogout} className="nav-3d__button">
+            <button type="button" onClick={handleLogout} className="nav-3d__button nav-3d__logout">
               Log out
             </button>
           </div>
@@ -66,6 +67,30 @@ const Nav = () => {
             Log in
           </NavLink>
         )}
+        <button
+          type="button"
+          className="nav-3d__burger"
+          aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          {menuOpen ? <CiCircleRemove /> : <CiMenuBurger />}
+        </button>
+      </div>
+      <div className={`nav-3d__mobile${menuOpen ? ' nav-3d__mobile--open' : ''}`}>
+        {links.map(({ to, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            onClick={() => setMenuOpen(false)}
+            className={({ isActive }) => isActive ? 'nav-3d__link nav-3d__link--active' : 'nav-3d__link'}
+          >
+            {label}
+          </NavLink>
+        ))}
+        <button type="button" onClick={handleLogout} className="nav-3d__button">
+          Log out
+        </button>
       </div>
     </header>
   )
