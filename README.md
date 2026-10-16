@@ -46,7 +46,7 @@ stop the backend and delete `APis/data/ruppepulse.db`.
 | Candlestick charts | `lightweight-charts` v5 in `ui/src/components/CandleChart.jsx` (candles + volume + live tick folding) |
 | Auth | Register/login/logout against FastAPI, PBKDF2-hashed passwords, bearer sessions, password change (revokes other sessions) |
 | Stop-loss / take-profit | `APis/app/stops.py` — conditional orders watched every 5s, fired as market orders at the trigger |
-| Position sizing & PnL | Trade-page calculator (qty/notional/R:R) + `/api/trade/portfolio` average-cost realized/unrealized PnL |
+| Position sizing & PnL | Trade-page calculator (qty/notional/R:R) + `/api/trade/portfolio` average-cost realized/unrealized PnL, shown live per position on Trade with take-profit/close |
 | Order book | `/api/market/depth` (Binance depth proxy, 2s cache) rendered as a live ladder on Trade |
 
 > **Stack note:** the written proposal specifies Node.js/Express; per your choice this
@@ -95,8 +95,8 @@ Ruppee Pulse/
    P2P funding-rate table, spread & premium panel.
 3. **Market** — sortable/filterable ticker table with USD + PKR columns.
 4. **Trade** — full chart, order ticket (market/limit, buy/sell), live order book,
-   stop-loss / take-profit panel, position calculator, open orders with cancel,
-   history, balances.
+   stop-loss / take-profit panel, position calculator, positions with live profit,
+   open orders with cancel, history, balances.
 5. **Wallet** — *Positions & PnL* (avg cost, realized/unrealized, allocation bars),
    portfolio value in USD & PKR, activity feed, demo-fund reset.
 6. **Analytics** — premium history chart with MA overlay, arbitrage scanner, live
@@ -119,6 +119,24 @@ Ruppee Pulse/
 - **API keys added → live mode:** orders are HMAC-SHA256-signed directly against Binance
   `/api/v3/order`; balances come from `/api/v3/account`. Create keys on Binance with
   *Read* + *Spot Trading* only.
+
+### Positions, profit & closing trades
+
+- **Open positions** (Trade → *POSITIONS & OPEN ORDERS*) show avg cost, live mark,
+  value and **unrealized profit** — dollar and percent — updating tick-by-tick from
+  the WebSocket stream, with total open P&L in the card header.
+- **Take profit / Close** on a position market-sells the holding (two-step confirm,
+  so a stray click never dumps it) and reports the realized gain/loss in the notice
+  bar — funds return to your balance immediately.
+- **Open limit orders** show *Profit now* vs the current mark; **Cancel** withdraws
+  the order before it fills.
+
+### Sessions
+
+- Sessions live 7 days; password change signs out every *other* session.
+- If a stored token dies (expired, revoked, or cleared elsewhere), the next request
+  logs you out visibly and redirects to `/login?reason=expired` with an explanation —
+  sign in again and everything continues where you left off.
 
 ## API summary
 
