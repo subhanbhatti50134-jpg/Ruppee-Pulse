@@ -10,10 +10,18 @@ ui/node_modules/
 ui/dist/
 
 # Runtime data & secrets — never commit
-APis/data/*.db
-APis/data/*.key
+APis/data/
+APis/.env
+.env
 APis/backend.log
 *.log
+nohup.out
+
+# Local env files (keep only .env.example tracked)
+*.local
+
+# Temp session seeder used by headless tests (embeds tokens)
+ui/public/boot.html
 
 # Editors / OS
 .DS_Store
