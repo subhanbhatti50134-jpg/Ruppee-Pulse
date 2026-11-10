@@ -48,38 +48,65 @@ const StopsPanel = () => {
     }
   }, [load])
 
+  // Mirror of APis/app/stops.py should_trigger(): a leg whose condition is
+  // already true at the current price market-fills within one 5s sweep.
+  const firesNow = (kind, side, trig) => {
+    if (!(marketPrice > 0) || !(trig > 0)) return false
+    if (kind === 'STOP_LOSS') return side === 'SELL' ? marketPrice <= trig : marketPrice >= trig
+    return side === 'SELL' ? marketPrice >= trig : marketPrice <= trig
+  }
+
   const create = async (event) => {
     event.preventDefault()
     setNotice('')
     setError('')
     const isOco = form.mode === 'oco'
-    if (!form.quantity) {
-      setError('Quantity is required.')
+    const qty = Number(form.quantity)
+    const trigger = Number(form.trigger)
+    const tp = Number(form.tp)
+    const sl = Number(form.sl)
+    const limit = Number(form.limit)
+    if (!form.quantity || !Number.isFinite(qty) || qty <= 0) {
+      setError('Quantity must be a positive number.')
       return
     }
-    if (isOco && (!form.tp || !form.sl)) {
+    if (isOco && (!form.tp || !form.sl || tp <= 0 || sl <= 0)) {
       setError('OCO needs both take-profit and stop-loss triggers.')
       return
     }
-    if (!isOco && !form.trigger) {
-      setError('Trigger price is required.')
+    if (!isOco && (!form.trigger || trigger <= 0)) {
+      setError('Trigger price must be a positive number.')
       return
     }
-    if (form.exec === 'LIMIT' && !form.limit) {
+    if (form.exec === 'LIMIT' && (!form.limit || limit <= 0)) {
       setError('Stop-limit execution needs a limit price.')
       return
+    }
+    // Reject triggers the market has already crossed: they satisfy the trigger
+    // condition right now, so the engine would fire both OCO legs immediately
+    // (and a single leg too). The placeholders are also side-aware for this.
+    const legs = isOco
+      ? [['take-profit', 'TAKE_PROFIT', tp], ['stop-loss', 'STOP_LOSS', sl]]
+      : [[form.kind === 'STOP_LOSS' ? 'stop-loss' : 'take-profit', form.kind, trigger]]
+    for (const [label, kind, trig] of legs) {
+      if (firesNow(kind, form.side, trig)) {
+        setError(
+          `The ${label} trigger is already ${kind === 'STOP_LOSS' ? (form.side === 'SELL' ? 'at/below' : 'at/above') : (form.side === 'SELL' ? 'at/above' : 'at/below')} the current market — it would fire instantly. Pick the other side of ${fmtNum(marketPrice, 2)}.`,
+        )
+        return
+      }
     }
     try {
       const body = {
         symbol: selectedSymbol,
         side: form.side,
         kind: isOco ? 'TAKE_PROFIT' : form.kind,
-        trigger_price: Number(isOco ? form.tp : form.trigger),
-        quantity: Number(form.quantity),
+        trigger_price: isOco ? tp : trigger,
+        quantity: qty,
         mode: 'auto',
         order_type: form.exec,
-        limit_price: form.exec === 'LIMIT' ? Number(form.limit) : null,
-        ...(isOco ? { oco_trigger_price: Number(form.sl) } : {}),
+        limit_price: form.exec === 'LIMIT' ? limit : null,
+        ...(isOco ? { oco_trigger_price: sl } : {}),
       }
       await api('/api/stops', { method: 'POST', body })
       setNotice(
@@ -167,7 +194,7 @@ const StopsPanel = () => {
               min="0"
               value={form.tp}
               onChange={(e) => setForm({ ...form, tp: e.target.value })}
-              placeholder="above entry"
+              placeholder={form.side === 'SELL' ? 'above market' : 'below market'}
               className={`${inputCls} mt-1 w-full`}
             />
           </label>
@@ -181,7 +208,7 @@ const StopsPanel = () => {
               min="0"
               value={form.sl}
               onChange={(e) => setForm({ ...form, sl: e.target.value })}
-              placeholder="below entry"
+              placeholder={form.side === 'SELL' ? 'below market' : 'above market'}
               className={`${inputCls} mt-1 w-full`}
             />
           </label>

@@ -46,6 +46,9 @@ export const MarketProvider = ({ children }) => {
   const [watchlist, setWatchlist] = useState([])
   const alertIds = useRef(new Set())
   const tickersRef = useRef({})
+  // True once the socket has delivered data: a slow REST snapshot (p2p/rates
+  // can block for seconds on a cold cache) must not overwrite newer WS state.
+  const wsSeenRef = useRef(false)
   const pendingTickers = useRef(null)
   const pendingP2p = useRef(null)
   const flushTimer = useRef(null)
@@ -57,6 +60,10 @@ export const MarketProvider = ({ children }) => {
 
   const pushAlert = useCallback((event) => {
     if (!event?.id || alertIds.current.has(event.id)) return
+    // The hub fans every alert out to all sockets (global ones carry no
+    // user_id); user-scoped events belong only to their owner.
+    const owner = event.user_id
+    if (owner && owner !== getCurrentUser()?.id) return
     alertIds.current.add(event.id)
     setAlerts((prev) => [event, ...prev].slice(0, MAX_ALERTS))
     if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.hidden) {
@@ -155,8 +162,12 @@ export const MarketProvider = ({ children }) => {
           api('/api/p2p/rates'),
         ])
         if (cancelled) return
-        commitTickers(tickerRes.data || {})
-        setStreamConnected(Boolean(tickerRes.stream_connected))
+        // Once the socket has spoken, the REST payload is an older snapshot
+        // (and its stream_connected can stay stale forever): keep WS state.
+        if (!wsSeenRef.current) {
+          commitTickers(tickerRes.data || {})
+          setStreamConnected(Boolean(tickerRes.stream_connected))
+        }
         applyP2p(p2pRes)
       } catch {
         /* backend may still be starting; WS retry handles it */
@@ -196,11 +207,13 @@ export const MarketProvider = ({ children }) => {
           return
         }
         if (message.type === 'snapshot') {
+          wsSeenRef.current = true
           pendingTickers.current = message.data?.tickers || {}
           setStreamConnected(Boolean(message.data?.stream_connected))
           if (message.data?.p2p) pendingP2p.current = message.data.p2p
           scheduleFlush()
         } else if (message.type === 'tickers') {
+          wsSeenRef.current = true
           pendingTickers.current = message.data || {}
           scheduleFlush()
         } else if (message.type === 'p2p') {
@@ -209,6 +222,7 @@ export const MarketProvider = ({ children }) => {
         } else if (message.type === 'alert') {
           pushAlert(message.data)
         } else if (message.type === 'status') {
+          wsSeenRef.current = true
           setStreamConnected(Boolean(message.connected))
         }
       }

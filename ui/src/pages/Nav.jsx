@@ -10,6 +10,7 @@ const Nav = () => {
   const navigate = useNavigate()
   const user = getCurrentUser()
   const [menuOpen, setMenuOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const links = [
     { to: '/overview', label: 'Overview' },
     { to: '/market', label: 'Market' },
@@ -23,8 +24,11 @@ const Nav = () => {
     return null
   }
 
-  const handleLogout = () => {
-    logoutUser()
+  // Must finish clearing the session before routing, or Login's mount effect
+  // still sees the stored token and redirects straight back to the dashboard.
+  const handleLogout = async () => {
+    await logoutUser()
+    setMenuOpen(false)
     navigate('/login', { state: { message: 'You have been logged out.' } })
   }
 
@@ -51,7 +55,14 @@ const Nav = () => {
         <input
           type="search"
           placeholder="Search"
-          aria-label="Search"
+          aria-label="Search markets"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== 'Enter') return
+            const q = search.trim()
+            navigate(q ? `/market?q=${encodeURIComponent(q)}` : '/market')
+          }}
           className="nav-3d__search-input"
         />
         </div>
@@ -88,9 +99,15 @@ const Nav = () => {
             {label}
           </NavLink>
         ))}
-        <button type="button" onClick={handleLogout} className="nav-3d__button">
-          Log out
-        </button>
+        {user ? (
+          <button type="button" onClick={handleLogout} className="nav-3d__button">
+            Log out
+          </button>
+        ) : (
+          <NavLink to="/login" onClick={() => setMenuOpen(false)} className="nav-3d__button">
+            Log in
+          </NavLink>
+        )}
       </div>
     </header>
   )

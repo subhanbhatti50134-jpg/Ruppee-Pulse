@@ -15,7 +15,9 @@ const PositionCalculator = ({ balanceUsd }) => {
   const [side, setSide] = useState('LONG')
 
   const result = useMemo(() => {
-    const e = Number(entry) || marketPrice
+    // An explicit "0" entry is invalid input, not an empty field — `Number('0') || marketPrice`
+    // silently substituted the market price and produced a misleading sizing.
+    const e = entry !== '' && Number.isFinite(Number(entry)) ? Number(entry) : marketPrice
     const s = Number(stop)
     const r = Number(risk)
     const t = Number(target)

@@ -52,7 +52,9 @@ export const api = async (path, { method = 'GET', body, signal } = {}) => {
         : `Request failed (${response.status})`
 
     if (response.status === 401) {
-      if (session?.token) {
+      // Skip auth paths: a wrong password on /login must keep its own message
+      // instead of being rewritten to "session expired".
+      if (session?.token && !path.startsWith('/api/auth/')) {
         // Dead/stale token: log out visibly and send the user to sign in,
         // instead of silently breaking every later request.
         clearSession()

@@ -47,7 +47,9 @@ const OrderTicket = ({ compact = false, defaultSymbol }) => {
   const execPrice = type === 'LIMIT' && Number(price) > 0 ? Number(price) : marketPrice
   const estTotal =
     Number(quantity) > 0 && execPrice ? Number(quantity) * execPrice
-    : Number(total) > 0 && execPrice ? Number(total)
+    // `total` only exists for MARKET orders; a leftover value from before a
+    // LIMIT switch would fake a quantity the user never entered.
+    : type === 'MARKET' && Number(total) > 0 && execPrice ? Number(total)
     : null
   const FEE_RATE = 0.001
   const estFee = estTotal ? estTotal * FEE_RATE : null
@@ -61,14 +63,19 @@ const OrderTicket = ({ compact = false, defaultSymbol }) => {
   const submit = async (event) => {
     event.preventDefault()
     setFeedback(null)
+    // Normalize to positive numbers only: "0" is a truthy string, so a naive
+    // `quantity ? …` sent quantity=0 and the API answered with a raw 422.
+    const qty = Number(quantity)
+    const quote = Number(total)
+    const limit = Number(price)
     const payload = {
       symbol,
       side,
       type,
       mode,
-      quantity: quantity ? Number(quantity) : null,
-      quote_quantity: type === 'MARKET' && total ? Number(total) : null,
-      price: type === 'LIMIT' ? Number(price) : null,
+      quantity: Number.isFinite(qty) && qty > 0 ? qty : null,
+      quote_quantity: type === 'MARKET' && Number.isFinite(quote) && quote > 0 ? quote : null,
+      price: type === 'LIMIT' && Number.isFinite(limit) && limit > 0 ? limit : null,
     }
     if (type === 'LIMIT' && (!payload.quantity || !payload.price)) {
       setFeedback({ error: 'Limit orders need quantity and price.' })

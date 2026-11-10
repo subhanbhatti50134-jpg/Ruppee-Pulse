@@ -57,8 +57,10 @@ const rsiCalc = (points, period = 14) => {
       avgGain = (avgGain * (period - 1) + gain) / period
       avgLoss = (avgLoss * (period - 1) + loss) / period
     }
-    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss
-    out.push({ time: points[i].time, value: 100 - 100 / (1 + rs) })
+    // avgLoss 0 → rs is infinite → RSI 100 (plugging 100 instead yields ~0.99,
+    // i.e. a perfectly overbought window rendered as oversold).
+    const rs = avgLoss === 0 ? Infinity : avgGain / avgLoss
+    out.push({ time: points[i].time, value: avgLoss === 0 && avgGain === 0 ? 50 : 100 - 100 / (1 + rs) })
   }
   return out
 }
@@ -75,6 +77,13 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
   const klinesRef = useRef([])
   const syncingRef = useRef(false)
   const lastBarRef = useRef(null)
+  // `${symbol}:${interval}` of the data currently loaded into the series; live
+  // ticks must be ignored until it matches, or they get folded into the
+  // previous symbol's candles (visible corruption on switch).
+  const loadedKeyRef = useRef('')
+  // Running volume of the forming bar (ticker.volume is a 24h rolling total,
+  // not this bar's volume — using it makes the last bar spike huge).
+  const volumeRunRef = useRef({ time: 0, value: 0, last: null })
   const [maOn, setMaOn] = useState({ 7: true, 25: true, 99: false })
   const [rsiOn, setRsiOn] = useState(true)
   const { tickers, lastTick } = useMarket()
@@ -152,17 +161,24 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
     series.createPriceLine({ price: 70, color: 'rgba(239,68,68,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false })
     series.createPriceLine({ price: 30, color: 'rgba(34,197,94,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false })
 
+    // Sync by *time*, not logical index: rsiCalc only emits from bar 14 onward,
+    // so copying {from,to} logical indices would shift the RSI 14 bars left of
+    // the price bars it describes.
     const toMain = (range) => {
       if (range && !syncingRef.current) {
         syncingRef.current = true
-        main.timeScale().setVisibleLogicalRange(range)
+        const from = chart.timeScale().logicalToTime(range.from)
+        const to = chart.timeScale().logicalToTime(range.to)
+        if (from != null && to != null) main.timeScale().setVisibleRange({ from, to })
         syncingRef.current = false
       }
     }
     const toRsi = (range) => {
       if (range && !syncingRef.current) {
         syncingRef.current = true
-        chart.timeScale().setVisibleLogicalRange(range)
+        const from = main.timeScale().logicalToTime(range.from)
+        const to = main.timeScale().logicalToTime(range.to)
+        if (from != null && to != null) chart.timeScale().setVisibleRange({ from, to })
         syncingRef.current = false
       }
     }
@@ -173,7 +189,14 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
     rsiSeriesRef.current = series
     if (klinesRef.current.length) series.setData(rsiCalc(klinesRef.current))
     try {
-      chart.timeScale().setVisibleLogicalRange(main.timeScale().getVisibleLogicalRange() || { from: 0, to: 60 })
+      const range = main.timeScale().getVisibleLogicalRange()
+      if (range) {
+        const from = main.timeScale().logicalToTime(range.from)
+        const to = main.timeScale().logicalToTime(range.to)
+        if (from != null && to != null) chart.timeScale().setVisibleRange({ from, to })
+      } else {
+        chart.timeScale().fitContent()
+      }
     } catch {
       /* charts not laid out yet; next interaction syncs them */
     }
@@ -199,8 +222,18 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
 
   useEffect(() => {
     let cancelled = false
+    let firstLoad = true
     const candles = candleSeriesRef.current
     if (!candles || !symbol) return undefined
+
+    // Data for the previous symbol/interval is still on screen — drop it and
+    // block live folding until the matching fetch lands.
+    loadedKeyRef.current = ''
+    lastBarRef.current = null
+    klinesRef.current = []
+    candleSeriesRef.current.setData([])
+    volumeSeriesRef.current?.setData([])
+    applyIndicators([])
 
     const load = async () => {
       try {
@@ -215,7 +248,17 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
         )
         applyIndicators(res.data)
         lastBarRef.current = res.data.length ? res.data[res.data.length - 1] : null
-        chartRef.current?.timeScale().scrollToRealTime()
+        loadedKeyRef.current = `${symbol}:${interval}`
+        const last = lastBarRef.current
+        volumeRunRef.current = last
+          ? { time: last.time, value: last.volume, last: tickers[symbol]?.volume ?? null }
+          : { time: 0, value: 0, last: tickers[symbol]?.volume ?? null }
+        // Only snap to the newest bar on first load: doing it every 30s poll
+        // yanks users who scrolled back to inspect history.
+        if (firstLoad) {
+          firstLoad = false
+          chartRef.current?.timeScale().scrollToRealTime()
+        }
       } catch {
         /* chart stays empty on fetch error */
       }
@@ -232,6 +275,9 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
   // Fold live ticker ticks into the forming candle.
   useEffect(() => {
     if (!lastTick) return
+    // Wait for this symbol/interval's data: folding into the previous
+    // symbol's series writes mixed candles (and poisons MAs/RSI).
+    if (loadedKeyRef.current !== `${symbol}:${interval}`) return
     const ticker = tickers[symbol]
     const candles = candleSeriesRef.current
     if (!ticker || !candles) return
@@ -258,12 +304,27 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
           }
         : { time: barTime, open: price, high: price, low: price, close: price }
 
+    // ticker.volume is a 24h rolling total; accumulate its delta per bucket so
+    // the forming bar shows this bar's volume instead of a 24h-sized spike.
+    const run = volumeRunRef.current
+    if (run.time !== barTime) {
+      const seed = klinesRef.current.length && klinesRef.current[klinesRef.current.length - 1].time === barTime
+        ? klinesRef.current[klinesRef.current.length - 1].volume
+        : 0
+      volumeRunRef.current = { time: barTime, value: seed, last: ticker.volume }
+    } else if (run.last != null && ticker.volume > run.last) {
+      run.value += ticker.volume - run.last
+      run.last = ticker.volume
+    } else {
+      run.last = ticker.volume
+    }
+
     lastBarRef.current = bar
     try {
       candles.update(bar)
       volumeSeriesRef.current?.update({
         time: barTime,
-        value: ticker.volume,
+        value: volumeRunRef.current.value,
         color:
           bar.close >= bar.open
             ? 'rgba(34,197,94,0.35)'

@@ -1,5 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMarket } from '../context/MarketContext.jsx'
+
+// Kinds emitted by APis/app/alerts.py and APis/app/stops.py.
+const ALERT_LABELS = {
+  premium_ma: 'Premium MA',
+  threshold: 'Threshold',
+  arbitrage: 'Arbitrage',
+  price: 'Price alert',
+  stop: 'Stop order',
+}
 
 const Toasts = () => {
   const { alerts, dismissAlerts } = useMarket()
@@ -7,11 +16,10 @@ const Toasts = () => {
   const [permission, setPermission] = useState(
     () => (typeof Notification !== 'undefined' ? Notification.permission : 'unsupported'),
   )
-  const latestId = alerts[0]?.id
-
-  useEffect(() => {
-    setHidden(new Set())
-  }, [latestId])
+  // No reset-on-new-alert here: pushAlert dedupes by id, so a dismissed toast
+  // can never legitimately reappear — clearing `hidden` would only resurrect
+  // every toast the user already closed.
+  const visible = alerts.filter((a) => !hidden.has(a.id)).slice(0, 3)
 
   const enableNotifications = async () => {
     if (typeof Notification === 'undefined') return
@@ -23,10 +31,16 @@ const Toasts = () => {
     }
   }
 
-  const visible = alerts.filter((a) => !hidden.has(a.id)).slice(0, 3)
   if (!visible.length) return null
 
-  const hide = (id) => setHidden((prev) => new Set(prev).add(id))
+  const hide = (id) =>
+    setHidden((prev) => {
+      // Keep the set bounded: forget ids no longer in the (50-max) alert list.
+      const live = new Set(alerts.map((a) => a.id))
+      const next = new Set([...prev].filter((x) => live.has(x)))
+      next.add(id)
+      return next
+    })
 
   return (
     <div className="pointer-events-none fixed right-4 top-24 z-[60] flex w-80 flex-col gap-2">
@@ -55,7 +69,7 @@ const Toasts = () => {
         >
           <div className="flex items-start justify-between gap-2">
             <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-400">
-              {alert.kind === 'threshold' ? 'Threshold' : 'Premium MA'}
+              {ALERT_LABELS[alert.kind] ?? 'Alert'}
             </span>
             <button
               type="button"

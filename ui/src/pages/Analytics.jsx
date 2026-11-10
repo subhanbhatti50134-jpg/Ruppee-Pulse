@@ -48,14 +48,17 @@ const Analytics = () => {
     event.preventDefault()
     setNotice('')
     setError('')
-    if (!form.threshold) {
+    // "0" is truthy as a string, so a numeric guard is needed: the API rejects
+    // non-positive thresholds with a raw 422 instead of this message.
+    const threshold = Number(form.threshold)
+    if (!form.threshold || !Number.isFinite(threshold) || threshold <= 0) {
       setError('Enter a premium threshold.')
       return
     }
     try {
       await api('/api/alerts', {
         method: 'POST',
-        body: { direction: form.direction, threshold: Number(form.threshold) },
+        body: { direction: form.direction, threshold },
       })
       setNotice('Alert rule created.')
       setForm({ direction: 'above', threshold: '' })
@@ -78,7 +81,8 @@ const Analytics = () => {
     event.preventDefault()
     setNotice('')
     setError('')
-    if (!priceForm.symbol.trim() || !priceForm.price) {
+    const price = Number(priceForm.price)
+    if (!priceForm.symbol.trim() || !priceForm.price || !Number.isFinite(price) || price <= 0) {
       setError('Enter a symbol and trigger price.')
       return
     }
@@ -88,7 +92,7 @@ const Analytics = () => {
         body: {
           symbol: priceForm.symbol.trim().toUpperCase(),
           direction: priceForm.direction,
-          price: Number(priceForm.price),
+          price,
           one_shot: priceForm.one_shot,
         },
       })

@@ -12,9 +12,13 @@ const OrderBook = () => {
 
   useEffect(() => {
     let alive = true
+    // Drop the previous symbol's ladder immediately: otherwise the old book
+    // (and its footer symbol) stays on screen until the next successful poll.
+    setBook(null)
+    setError('')
     const load = async () => {
       try {
-        const data = await api(`/api/market/depth?symbol=${selectedSymbol}&limit=25`)
+        const data = await api(`/api/market/depth?symbol=${selectedSymbol}&limit=50`)
         if (alive) {
           setBook(data)
           setError('')

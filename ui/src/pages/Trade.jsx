@@ -78,6 +78,7 @@ const openOrderRowEqual = (a, b) => {
   const y = b.o
   return x === y || (
     x.id === y.id &&
+    x.binance_order_id === y.binance_order_id &&
     x.symbol === y.symbol &&
     x.side === y.side &&
     x.type === y.type &&
@@ -108,7 +109,7 @@ const OpenOrderRow = React.memo(({ o, pnl, onCancel }) => (
     <td className="px-3 py-2 text-right">
       <button
         type="button"
-        onClick={() => onCancel(o.id)}
+        onClick={() => onCancel(o.id ?? o.binance_order_id)}
         className="rounded-md bg-red-900/60 px-3 py-1 text-xs font-semibold text-red-300 transition hover:bg-red-800"
       >
         Cancel
@@ -170,6 +171,9 @@ const Trade = () => {
   const [closing, setClosing] = useState(null)
   const closingRef = useRef(null)
   const balancesRef = useRef(null)
+  // Which source wrote the current `error`: background polls must not wipe an
+  // error the user just caused with cancel/close (they'd vanish within 15s).
+  const errorFromRef = useRef('')
   useEffect(() => { closingRef.current = closing }, [closing])
   useEffect(() => { balancesRef.current = balances }, [balances])
 
@@ -187,8 +191,9 @@ const Trade = () => {
       setBalances(bal)
       setKeysState(keys)
       setPositions((port.positions || []).filter((p) => p.qty > 1e-12))
-      setError('')
+      if (errorFromRef.current === 'load') setError('')
     } catch (err) {
+      errorFromRef.current = 'load'
       setError(err.message)
     }
   }, [])
@@ -206,12 +211,14 @@ const Trade = () => {
 
   const cancel = useCallback(async (orderId) => {
     setNotice('')
+    errorFromRef.current = ''
     setError('')
     try {
       await api(`/api/trade/orders/${orderId}`, { method: 'DELETE' })
       setNotice('Order cancelled.')
       load()
     } catch (err) {
+      errorFromRef.current = 'action'
       setError(err.message)
     }
   }, [load])
@@ -247,6 +254,7 @@ const Trade = () => {
     }
     setClosing(null)
     setNotice('')
+    errorFromRef.current = ''
     setError('')
     const held = balancesRef.current?.balances.find((b) => b.asset === p.asset)
     const qty = held ? held.free : p.qty
@@ -256,14 +264,20 @@ const Trade = () => {
         body: { symbol: `${p.asset}USDT`, side: 'SELL', type: 'MARKET', quantity: qty, mode: 'auto' },
       })
       const order = res.order
-      const gain = p.avg_cost ? (order.avg_price - p.avg_cost) * order.quantity : 0
+      // A live order that hasn't reported a fill comes back with avg_price null;
+      // treating null as 0 would post a bogus loss of the whole avg cost.
+      const fill = order.avg_price ?? order.price
+      const gain = p.avg_cost && fill ? (fill - p.avg_cost) * order.quantity : null
       setNotice(
-        `Closed ${p.asset}: sold ${fmtNum(order.quantity, 6)} @ ${fmtUsd(order.avg_price)} — ` +
-          `${gain >= 0 ? '+' : ''}${fmtUsd(gain, 2)} ${gain >= 0 ? 'profit' : 'loss'} realized.`,
+        `Closed ${p.asset}: sold ${fmtNum(order.quantity, 6)}${fill ? ` @ ${fmtUsd(fill)}` : ''} — ` +
+          (gain == null
+            ? 'realized P&L unavailable.'
+            : `${gain >= 0 ? '+' : ''}${fmtUsd(gain, 2)} ${gain >= 0 ? 'profit' : 'loss'} realized.`),
       )
       window.dispatchEvent(new Event('rp:order-placed'))
       load()
     } catch (err) {
+      errorFromRef.current = 'action'
       setError(err.message)
     }
   }, [load])
@@ -441,7 +455,12 @@ const Trade = () => {
                     <tr><td colSpan={9} className="px-3 py-5 text-center text-slate-500">No open orders.</td></tr>
                   )}
                   {openOrders.map((o) => (
-                    <OpenOrderRow key={o.id} o={o} pnl={orderPnl(o)} onCancel={cancel} />
+                    <OpenOrderRow
+                      key={o.id ?? o.binance_order_id}
+                      o={o}
+                      pnl={orderPnl(o)}
+                      onCancel={cancel}
+                    />
                   ))}
                 </tbody>
               </table>

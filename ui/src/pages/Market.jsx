@@ -1,5 +1,5 @@
-import React, { useCallback, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useMarket } from '../context/MarketContext.jsx'
 import { baseAsset, fmtCompact, fmtNum, fmtPct, fmtPkr, fmtUsd } from '../lib/format.js'
 
@@ -74,8 +74,13 @@ const MarketRow = React.memo(({ t, index, active, watched, buyRate, onWatch, onT
 
 const Market = () => {
   const navigate = useNavigate()
+  const location = useLocation()
   const { tickers, buyRate, selectedSymbol, setSelectedSymbol, premium, interbank, inWatchlist, toggleWatchlist } = useMarket()
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => new URLSearchParams(location.search).get('q') ?? '')
+  // The nav bar searches by routing here with ?q=… — pick it up on every navigation.
+  useEffect(() => {
+    setQuery(new URLSearchParams(location.search).get('q') ?? '')
+  }, [location.search])
   const [onlyWatched, setOnlyWatched] = useState(false)
   const [sortKey, setSortKey] = useState('quoteVolume')
   const [sortDir, setSortDir] = useState(-1)
@@ -87,6 +92,11 @@ const Market = () => {
       .sort((a, b) => {
         const av = a[sortKey] ?? 0
         const bv = b[sortKey] ?? 0
+        // Symbol (and any other text column) can't be subtracted — that yields
+        // NaN, which Array.sort treats as "equal" and silently never reorders.
+        if (typeof av === 'string' || typeof bv === 'string') {
+          return String(av).localeCompare(String(bv)) * sortDir
+        }
         return (av - bv) * sortDir
       })
     return list
