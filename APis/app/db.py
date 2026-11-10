@@ -12,6 +12,7 @@ from .config import (
     DEMO_STARTING_BALANCE,
     P2P_REFRESH_SECONDS,
     PREMIUM_SAMPLE_RETENTION,
+    SESSION_TTL_SECONDS,
 )
 
 # Reentrant: get_conn() takes it for lazy init while callers already hold it.
@@ -228,7 +229,18 @@ def get_session(token: str) -> dict | None:
         "SELECT * FROM sessions WHERE token = ? AND expires_at > ?", (token, time.time())
     )
     row = cur.fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    # Sliding expiration: extend the session on every authenticated request so
+    # active users don't get logged out while they're using the app.
+    with _lock:
+        conn = get_conn()
+        conn.execute(
+            "UPDATE sessions SET expires_at = ? WHERE token = ?",
+            (time.time() + SESSION_TTL_SECONDS, token),
+        )
+        conn.commit()
+    return dict(row)
 
 
 def delete_session(token: str):

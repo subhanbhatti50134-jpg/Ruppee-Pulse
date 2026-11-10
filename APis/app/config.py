@@ -43,7 +43,7 @@ FX_REFRESH_SECONDS = int(os.environ.get("RP_FX_REFRESH_SECONDS", "3600"))
 HISTORY_MAX_POINTS = int(os.environ.get("RP_HISTORY_MAX_POINTS", "720"))
 PREMIUM_MA_WINDOW = int(os.environ.get("RP_PREMIUM_MA_WINDOW", "30"))
 PREMIUM_MA_DEVIATION_PCT = float(os.environ.get("RP_PREMIUM_MA_DEVIATION_PCT", "1.5"))
-SESSION_TTL_SECONDS = int(os.environ.get("RP_SESSION_TTL_SECONDS", str(7 * 24 * 3600)))
+SESSION_TTL_SECONDS = int(os.environ.get("RP_SESSION_TTL_SECONDS", str(30 * 24 * 3600)))
 DEMO_STARTING_BALANCE = float(os.environ.get("RP_DEMO_BALANCE", "100000"))
 ALERT_RETENTION = int(os.environ.get("RP_ALERT_RETENTION", "200"))
 
