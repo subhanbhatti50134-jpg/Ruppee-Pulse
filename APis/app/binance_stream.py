@@ -22,6 +22,25 @@ WS_BASE = "wss://stream.binance.com:9443"
 
 TICKER_CACHE_KEY = "spot:tickers"
 
+# Candle span per interval (seconds) — used for kline cache TTLs.
+INTERVAL_SECONDS = {
+    "1m": 60,
+    "3m": 180,
+    "5m": 300,
+    "15m": 900,
+    "30m": 1800,
+    "1h": 3600,
+    "2h": 7200,
+    "4h": 14400,
+    "6h": 21600,
+    "8h": 28800,
+    "12h": 43200,
+    "1d": 86400,
+    "3d": 259200,
+    "1w": 604800,
+    "1M": 2592000,
+}
+
 
 def klines_cache_key(symbol: str, interval: str, limit: int) -> str:
     return f"klines:{symbol}:{interval}:{limit}"
@@ -94,8 +113,26 @@ def get_price(symbol: str) -> float | None:
         return ticker["price"]
     cached = cache.get(klines_cache_key(symbol, "1m", 2))
     if cached:
-        return float(cached[-1][4])
+        # fetch_klines caches parsed dicts, not Binance's raw arrays.
+        return float(cached[-1]["close"])
     return None
+
+
+async def get_price_async(symbol: str) -> float | None:
+    """Like get_price, but fills the gap for symbols outside the watched list.
+
+    The ticker snapshot only covers WATCHED_SYMBOLS, so a stop or demo order on
+    any other symbol would otherwise be skipped forever with no price source.
+    """
+    price = get_price(symbol)
+    if price is not None:
+        return price
+    try:
+        await fetch_klines(symbol, "1m", 2)
+    except Exception as exc:
+        log.warning("price lookup failed for %s: %s", symbol, exc)
+        return None
+    return get_price(symbol)
 
 
 async def fetch_klines(symbol: str, interval: str, limit: int = 200) -> list:
@@ -118,10 +155,13 @@ async def fetch_klines(symbol: str, interval: str, limit: int = 200) -> list:
         }
         for k in raw
     ]
-    # Freshness: older candles never change, only the forming one does.
+    # Freshness: older candles never change, only the forming one does — so cache
+    # until the current candle closes. Using a fixed 60s window assumed 1m bars
+    # and collapsed every larger interval to the 2s floor, defeating the cache.
     if candles:
         age = time.time() - candles[-1]["time"]
-        ttl = max(2.0, 60.0 - age) if limit < 500 else 120.0
+        span = INTERVAL_SECONDS.get(interval, 60)
+        ttl = max(2.0, span - age) if limit < 500 else 120.0
     else:
         ttl = 30.0
     cache.set(key, candles, ttl=ttl)

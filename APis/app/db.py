@@ -6,9 +6,16 @@ import threading
 import time
 import uuid
 
-from .config import ALERT_RETENTION, DB_PATH, DEMO_STARTING_BALANCE
+from .config import (
+    ALERT_RETENTION,
+    DB_PATH,
+    DEMO_STARTING_BALANCE,
+    P2P_REFRESH_SECONDS,
+    PREMIUM_SAMPLE_RETENTION,
+)
 
-_lock = threading.Lock()
+# Reentrant: get_conn() takes it for lazy init while callers already hold it.
+_lock = threading.RLock()
 _conn: sqlite3.Connection | None = None
 
 SCHEMA = """
@@ -122,20 +129,28 @@ CREATE INDEX IF NOT EXISTS idx_stop_orders_status ON stop_orders(status);
 def get_conn() -> sqlite3.Connection:
     global _conn
     if _conn is None:
-        _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-        _conn.row_factory = sqlite3.Row
-        _conn.executescript(SCHEMA)
-        # additive column upgrades for databases created before these fields existed
-        for stmt in (
-            "ALTER TABLE stop_orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'MARKET'",
-            "ALTER TABLE stop_orders ADD COLUMN limit_price REAL",
-            "ALTER TABLE stop_orders ADD COLUMN group_id TEXT",
-        ):
-            try:
-                _conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass  # column already present
-        _conn.commit()
+        # Read paths call this without the lock, so two first-time callers
+        # could each build a connection and orphan the other.
+        with _lock:
+            if _conn is None:
+                _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+                _conn.row_factory = sqlite3.Row
+                # SQLite defaults FK enforcement off; without this every
+                # declared ON DELETE CASCADE is inert.
+                _conn.execute("PRAGMA foreign_keys = ON")
+                _conn.executescript(SCHEMA)
+                # additive column upgrades for databases created before these fields existed
+                for stmt in (
+                    "ALTER TABLE stop_orders ADD COLUMN order_type TEXT NOT NULL DEFAULT 'MARKET'",
+                    "ALTER TABLE stop_orders ADD COLUMN limit_price REAL",
+                    "ALTER TABLE stop_orders ADD COLUMN group_id TEXT",
+                    "ALTER TABLE orders ADD COLUMN error TEXT",
+                ):
+                    try:
+                        _conn.execute(stmt)
+                    except sqlite3.OperationalError:
+                        pass  # column already present
+                _conn.commit()
     return _conn
 
 
@@ -305,6 +320,12 @@ def reset_demo_account(user_id: str) -> dict:
     with _lock:
         conn = get_conn()
         conn.execute("DELETE FROM orders WHERE user_id = ? AND mode = 'demo'", (user_id,))
+        # Pending demo stops would otherwise fire against the fresh wallet and
+        # fail with "Insufficient ..." alerts for an account the user reset.
+        conn.execute(
+            "DELETE FROM stop_orders WHERE user_id = ? AND mode = 'demo' AND status = 'PENDING'",
+            (user_id,),
+        )
         conn.commit()
     return balances
 
@@ -317,8 +338,8 @@ def insert_order(order: dict):
         conn = get_conn()
         conn.execute(
             """INSERT INTO orders (id, user_id, symbol, side, type, price, quantity,
-               quote_quantity, status, mode, binance_order_id, avg_price, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               quote_quantity, status, mode, binance_order_id, avg_price, created_at, updated_at, error)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 order["id"],
                 order["user_id"],
@@ -334,6 +355,7 @@ def insert_order(order: dict):
                 order.get("avg_price"),
                 order["created_at"],
                 order["updated_at"],
+                order.get("error"),
             ),
         )
         conn.commit()
@@ -362,6 +384,15 @@ def list_orders(user_id: str, status: str | None = None, limit: int = 50) -> lis
             (user_id, limit),
         )
     return _rows(cur)
+
+
+def get_order(order_id: str, user_id: str) -> dict | None:
+    """Direct lookup — a limited list scan would miss older open orders."""
+    cur = get_conn().execute(
+        "SELECT * FROM orders WHERE id = ? AND user_id = ?", (order_id, user_id)
+    )
+    row = cur.fetchone()
+    return dict(row) if row else None
 
 
 def list_open_demo_orders() -> list[dict]:
@@ -612,7 +643,7 @@ def insert_premium_sample(premium: dict) -> None:
         )
         conn.execute(
             "DELETE FROM premium_samples WHERE ts < ?",
-            (time.time() - 86400 * 3,),
+            (time.time() - PREMIUM_SAMPLE_RETENTION * P2P_REFRESH_SECONDS,),
         )
         conn.commit()
 

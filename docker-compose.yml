@@ -11,10 +11,18 @@ services:
       # keep accounts, orders, alerts and the master key across rebuilds
       - ./APis/data:/repo/APis/data
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   redis:
     image: redis:7-alpine
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # Without this the app can boot before Redis answers, see the ping fail and
+    # silently stay on the in-memory cache for the rest of the process life.
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped

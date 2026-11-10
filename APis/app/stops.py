@@ -6,12 +6,14 @@ from types import SimpleNamespace
 
 from . import db
 from .alerts import alert_engine
-from .binance_stream import get_price
+from .binance_stream import get_price_async
 from .trade import place_order
 
 log = logging.getLogger("rp.stops")
 
 CHECK_SECONDS = 5
+# Symbols we have already warned about (once per process, not per sweep).
+_price_missing: set[str] = set()
 
 
 def should_trigger(stop: dict, price: float) -> bool:
@@ -89,10 +91,18 @@ async def process_stop(stop: dict) -> None:
 async def process_pending_stops() -> int:
     fired = 0
     for stop in db.list_pending_stop_orders():
-        price = get_price(stop["symbol"])
-        if price is None:
-            continue
         try:
+            price = await get_price_async(stop["symbol"])
+            if price is None:
+                if stop["symbol"] not in _price_missing:
+                    _price_missing.add(stop["symbol"])
+                    log.warning(
+                        "no price source for %s — stop %s stays pending",
+                        stop["symbol"],
+                        stop["id"],
+                    )
+                continue
+            _price_missing.discard(stop["symbol"])
             if should_trigger(stop, price):
                 await process_stop(stop)
                 fired += 1
@@ -104,7 +114,12 @@ async def process_pending_stops() -> int:
 async def stop_loop():
     while True:
         await asyncio.sleep(CHECK_SECONDS)
-        await process_pending_stops()
+        try:
+            await process_pending_stops()
+        except Exception as exc:
+            # Never let one bad price lookup kill the engine: the task is not
+            # awaited anywhere, so a crash would silently disable every stop.
+            log.warning("stop sweep failed: %s", exc)
 
 
 async def start():

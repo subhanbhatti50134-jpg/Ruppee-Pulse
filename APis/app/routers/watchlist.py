@@ -26,5 +26,10 @@ def add_symbol(payload: WatchlistIn, request: Request):
 @router.delete("/{symbol}")
 def remove_symbol(symbol: str, request: Request):
     user = get_current_user(request)
-    db.remove_watchlist(user["id"], symbol.upper())
+    # Match add_symbol's normalization, otherwise "sol" looks up "SOL" and
+    # silently removes nothing.
+    normalized = symbol.upper()
+    if not normalized.endswith("USDT"):
+        normalized += "USDT"
+    db.remove_watchlist(user["id"], normalized)
     return {"symbols": db.list_watchlist(user["id"])}

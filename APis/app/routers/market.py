@@ -7,6 +7,10 @@ from ..p2p import get_interbank_rate, get_p2p_state
 
 router = APIRouter(prefix="/api/market", tags=["market"])
 
+# Binance /api/v3/depth rejects anything else (returns 400), which would surface
+# here as a 502 on every order-book poll.
+DEPTH_LIMITS = (5, 10, 20, 50, 100)
+
 
 @router.get("/tickers")
 def tickers():
@@ -49,6 +53,10 @@ async def depth(
     limit: int = Query(20, ge=5, le=100),
 ):
     """Order book snapshot from Binance (cached 2s so polling stays polite)."""
+    if limit not in DEPTH_LIMITS:
+        raise HTTPException(
+            status_code=422, detail=f"limit must be one of {list(DEPTH_LIMITS)}"
+        )
     symbol = symbol.upper()
     if not symbol.endswith("USDT"):
         symbol += "USDT"

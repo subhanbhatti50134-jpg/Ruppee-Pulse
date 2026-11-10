@@ -7,7 +7,14 @@ import time
 import uuid
 
 from . import db
-from .binance_stream import BinanceAPIError, fetch_klines, get_price, get_tickers, signed_request
+from .binance_stream import (
+    BinanceAPIError,
+    fetch_klines,
+    get_price,
+    get_price_async,
+    get_tickers,
+    signed_request,
+)
 from .security import decrypt_secret
 
 log = logging.getLogger("rp.trade")
@@ -60,6 +67,7 @@ def _order_view(order: dict) -> dict:
         "binance_order_id": order.get("binance_order_id"),
         "created_at": order["created_at"],
         "updated_at": order["updated_at"],
+        "error": order.get("error"),
     }
 
 
@@ -210,7 +218,7 @@ async def place_live_order(user: dict, req) -> dict:
             "updated_at": time.time(),
             "error": exc.message,
         }
-        db.insert_order({k: v for k, v in order.items() if k != "error"})
+        db.insert_order(order)
         raise ValueError(exc.message) from exc
 
     status = result.get("status", "NEW")
@@ -242,15 +250,17 @@ async def place_live_order(user: dict, req) -> dict:
 
 async def place_demo_order(user: dict, req) -> dict:
     symbol = req.symbol.upper()
-    price = get_price(symbol)
+    # A limit order prices itself; only market orders need a live mark. Fetching
+    # the mark first made every limit order on a non-watched symbol fail.
+    price = req.price if req.type == "LIMIT" and req.price else None
+    if price is None:
+        price = get_price(symbol)
     if price is None:
         try:
             candles = await fetch_klines(symbol, "1m", 2)
-            price = float(candles[-1][4])
+            price = float(candles[-1]["close"])
         except Exception as exc:
             raise ValueError(f"Price unavailable for {symbol}: {exc}") from exc
-    if req.type == "LIMIT" and req.price:
-        price = req.price
 
     balances = db.get_demo_balances(user["id"])
     base = symbol[: -len("USDT")] if symbol.endswith("USDT") else symbol
@@ -344,7 +354,7 @@ async def cancel_demo_order(order: dict) -> dict:
     return _order_view(order)
 
 
-async def cancel_live_order(user: dict, order: dict) -> dict:
+async def _delete_remote_order(user: dict, order: dict) -> None:
     keys = db.get_api_keys(user["id"])
     if not keys:
         raise ValueError("No Binance API keys configured")
@@ -360,6 +370,10 @@ async def cancel_live_order(user: dict, order: dict) -> dict:
         )
     except BinanceAPIError as exc:
         raise ValueError(exc.message) from exc
+
+
+async def cancel_live_order(user: dict, order: dict) -> dict:
+    await _delete_remote_order(user, order)
     db.update_order(order["id"], status="CANCELED")
     order["status"] = "CANCELED"
     return _order_view(order)
@@ -372,7 +386,7 @@ async def process_demo_fills():
     """Fill open demo limit orders when the live market crosses their price."""
     for order in db.list_open_demo_orders():
         try:
-            price = get_price(order["symbol"])
+            price = await get_price_async(order["symbol"])
             if price is None:
                 continue
             limit_price = order.get("price")
@@ -466,14 +480,28 @@ async def place_order(user: dict, req) -> dict:
 
 
 async def cancel_order(user: dict, order_id: str) -> dict:
-    order = next((o for o in db.list_orders(user["id"], limit=200) if o["id"] == order_id), None)
-    if not order:
-        raise ValueError("Order not found")
-    if order["status"] not in ("NEW", "PARTIALLY_FILLED"):
-        raise ValueError("Order is not open")
-    if order["mode"] == "demo":
-        return await cancel_demo_order(order)
-    return await cancel_live_order(user, order)
+    order = db.get_order(order_id, user["id"])
+    if order:
+        if order["status"] not in ("NEW", "PARTIALLY_FILLED"):
+            raise ValueError("Order is not open")
+        if order["mode"] == "demo":
+            return await cancel_demo_order(order)
+        return await cancel_live_order(user, order)
+
+    # Orders opened outside this app have no local row — get_open_orders() shows
+    # them keyed by their Binance id, so cancel them remotely without a DB write.
+    if db.get_api_keys(user["id"]):
+        try:
+            remote = await _live_open_orders(user)
+        except Exception as exc:
+            log.warning("live open orders lookup failed: %s", exc)
+            remote = []
+        match = next((r for r in remote if r["binance_order_id"] == order_id), None)
+        if match:
+            await _delete_remote_order(user, match)
+            match["status"] = "CANCELED"
+            return _order_view({**match, "id": None})
+    raise ValueError("Order not found")
 
 
 async def get_open_orders(user: dict) -> list[dict]:

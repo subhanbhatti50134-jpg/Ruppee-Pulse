@@ -24,6 +24,13 @@ def create_stop(payload: StopOrderIn, request: Request):
         raise HTTPException(status_code=400, detail="Provide quantity or total")
     if payload.order_type == "LIMIT" and not payload.limit_price:
         raise HTTPException(status_code=400, detail="Limit execution needs a limit price")
+    if payload.order_type == "LIMIT" and not payload.quantity:
+        # Totals are only converted to a quantity for MARKET orders, so a
+        # quote-only limit stop would sit PENDING and fail at trigger time.
+        raise HTTPException(
+            status_code=400,
+            detail="Limit execution needs a quantity (a total is only valid for market orders)",
+        )
     symbol = payload.symbol.upper()
     if not symbol.endswith("USDT"):
         symbol += "USDT"

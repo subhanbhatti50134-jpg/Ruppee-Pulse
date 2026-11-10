@@ -66,6 +66,10 @@ async def portfolio(request: Request):
         return await trade.get_portfolio(user, mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        # Live balances come from Binance: transport/API errors are not ValueError
+        # and must not surface as an unhandled 500 (siblings return 502).
+        raise HTTPException(status_code=502, detail=f"Portfolio fetch failed: {exc}") from exc
 
 
 @router.get("/equity")

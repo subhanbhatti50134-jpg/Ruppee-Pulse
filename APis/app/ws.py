@@ -35,12 +35,14 @@ class WSHub:
         data = json.dumps(message, default=str)
         async with self._lock:
             targets = list(self.clients)
-        dead = []
-        for ws in targets:
-            try:
-                await ws.send_text(data)
-            except Exception:
-                dead.append(ws)
+        if not targets:
+            return
+        # Concurrent sends: one stalled client must not block the others (this
+        # runs inside the Binance read loop, so blocking stalls all prices).
+        results = await asyncio.gather(
+            *(ws.send_text(data) for ws in targets), return_exceptions=True
+        )
+        dead = [ws for ws, res in zip(targets, results, strict=True) if isinstance(res, Exception)]
         for ws in dead:
             await self.disconnect(ws)
 

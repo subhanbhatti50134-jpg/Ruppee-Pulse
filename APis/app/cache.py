@@ -150,7 +150,8 @@ def build_cache():
         return TTLCache()
     try:
         cache = RedisCache(url)
-        log.info("cache backend: redis (%s)", url)
+        # Never log the URL itself: it commonly embeds a password.
+        log.info("cache backend: redis (%s)", url.split("@")[-1])
         return cache
     except Exception as exc:
         log.warning("RP_REDIS_URL set but unusable (%s); falling back to in-memory cache", exc)

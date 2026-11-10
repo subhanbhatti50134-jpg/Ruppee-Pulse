@@ -199,6 +199,54 @@ def test_order_history_and_reset(client, user, tickers, pkr_rate):
     assert c.get("/api/trade/history").json()["orders"] == []
 
 
+def test_cancel_remote_only_order(client, user, monkeypatch):
+    """Orders opened outside this app have no local row but must still cancel."""
+    c = user["client"]
+    import app.trade as trade_mod
+
+    remote = [
+        {
+            "binance_order_id": "424242",
+            "symbol": "ETHUSDT",
+            "side": "BUY",
+            "type": "LIMIT",
+            "price": 1900.0,
+            "quantity": 1.0,
+            "status": "NEW",
+            "mode": "live",
+            "created_at": 1000.0,
+            "updated_at": 1000.0,
+        }
+    ]
+
+    async def fake_open(_user):
+        return list(remote)
+
+    deleted = []
+
+    async def fake_delete(_user, order):
+        deleted.append(order["binance_order_id"])
+
+    monkeypatch.setattr(trade_mod, "_live_open_orders", fake_open)
+    monkeypatch.setattr(trade_mod, "_delete_remote_order", fake_delete)
+
+    # Without keys there is nothing to cancel against: clean 400, no Binance call.
+    assert c.delete("/api/trade/orders/424242").status_code == 400
+    assert deleted == []
+
+    assert c.post("/api/trade/keys", json={"api_key": "k" * 24, "api_secret": "s" * 24}).status_code == 200
+
+    res = c.delete("/api/trade/orders/424242")
+    assert res.status_code == 200, res.text
+    order = res.json()["order"]
+    assert order["status"] == "CANCELED"
+    assert order["binance_order_id"] == "424242"
+    assert deleted == ["424242"]
+
+    # Ids that match neither a local row nor a Binance order stay a 400.
+    assert c.delete("/api/trade/orders/nope").status_code == 400
+
+
 def test_orders_require_auth(client, tickers):
     res = client.post(
         "/api/trade/order",

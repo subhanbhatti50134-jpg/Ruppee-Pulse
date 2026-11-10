@@ -12,11 +12,16 @@ def _public_user(user: dict) -> dict:
     return {"id": user["id"], "name": user["name"], "email": user["email"]}
 
 
-def get_current_user(request: Request) -> dict:
+def _bearer_token(request: Request) -> str:
     auth = request.headers.get("Authorization", "")
     token = auth[7:].strip() if auth.startswith("Bearer ") else ""
     if not token:
         token = request.query_params.get("token", "")
+    return token
+
+
+def get_current_user(request: Request) -> dict:
+    token = _bearer_token(request)
     session = db.get_session(token) if token else None
     if not session:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -51,8 +56,9 @@ def login(payload: LoginIn):
 
 @router.post("/logout")
 def logout(request: Request):
-    auth = request.headers.get("Authorization", "")
-    token = auth[7:].strip() if auth.startswith("Bearer ") else ""
+    # Same resolution as get_current_user: a session opened via ?token= must be
+    # revocable too, or logout reports success while the token stays valid.
+    token = _bearer_token(request)
     if token:
         db.delete_session(token)
     return {"ok": True}

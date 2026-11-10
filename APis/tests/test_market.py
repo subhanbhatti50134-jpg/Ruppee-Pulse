@@ -21,8 +21,8 @@ def test_depth_normalizes_and_caches(client, monkeypatch):
         }
 
     monkeypatch.setattr("app.routers.market.rest_get", fake_rest_get)
-    # unique limit avoids colliding with any cached depth from other runs
-    res = client.get("/api/market/depth?symbol=btcusdt&limit=7")
+    # a supported depth limit (Binance only accepts 5/10/20/50/100)
+    res = client.get("/api/market/depth?symbol=btcusdt&limit=50")
     assert res.status_code == 200
     body = res.json()
     assert body["symbol"] == "BTCUSDT"
@@ -31,9 +31,21 @@ def test_depth_normalizes_and_caches(client, monkeypatch):
     assert body["spread"] == 0.5
     assert len(calls) == 1
 
-    again = client.get("/api/market/depth?symbol=BTCUSDT&limit=7")
+    again = client.get("/api/market/depth?symbol=BTCUSDT&limit=50")
     assert again.status_code == 200
     assert len(calls) == 1  # served from 2s cache
+
+
+def test_depth_rejects_limits_binance_would_reject(client, monkeypatch):
+    async def fake_rest_get(path, params=None, timeout=None):
+        raise AssertionError("must not call Binance with an unsupported limit")
+
+    monkeypatch.setattr("app.routers.market.rest_get", fake_rest_get)
+    # 7 and 25 fall inside the old ge=5/le=100 range but Binance rejects them
+    # with a 400, which the endpoint surfaced as a 502.
+    for limit in (7, 25, 30):
+        res = client.get(f"/api/market/depth?symbol=BTCUSDT&limit={limit}")
+        assert res.status_code == 422, res.text
 
 
 def test_klines_rejects_bad_interval(client):
