@@ -212,7 +212,7 @@ GET  /api/health                          WS   /ws  (snapshot + tickers + p2p + 
   demo orders, portfolio math, stop lifecycle (incl. engine fire/fail paths),
   alerts/watchlist, cache behavior, arbitrage math, OCO/stop-limit, equity curve,
   keys-test, SPA serving. Seeded tickers keep the suite offline —
-  `cd APis && ./venv/bin/pytest` → 49 passing.
+  `cd APis && ./venv/bin/pytest` → 51 passing.
 - **Lint** — ruff config in `APis/pyproject.toml`: `./venv/bin/ruff check app tests`.
 - **Password change** — `POST /api/auth/change-password` verifies the current
   password (PBKDF2), stores the new one, and revokes every *other* session.
