@@ -228,6 +228,7 @@ export const MarketProvider = ({ children }) => {
       }
       socket.onclose = () => {
         setWsConnected(false)
+        wsSeenRef.current = false  // allow REST snapshot to repopulate tickers
         scheduleRetry()
       }
       socket.onerror = () => {
@@ -254,6 +255,26 @@ export const MarketProvider = ({ children }) => {
       }
     }
   }, [pushAlert, scheduleFlush])
+
+  // Re-fetch REST tickers while WS is down so prices don't freeze forever.
+  useEffect(() => {
+    if (wsConnected) return
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const res = await api('/api/market/tickers')
+        if (!cancelled) commitTickers(res.data || {})
+      } catch {
+        /* backend may be unreachable; retry on next interval */
+      }
+    }
+    refresh()
+    const timer = setInterval(refresh, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [wsConnected, commitTickers])
 
   const value = useMemo(
     () => ({

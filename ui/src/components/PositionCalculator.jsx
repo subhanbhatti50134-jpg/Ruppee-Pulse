@@ -22,7 +22,7 @@ const PositionCalculator = ({ balanceUsd }) => {
     const r = Number(risk)
     const t = Number(target)
     const bal = Number(balanceUsd) || 0
-    if (!e || !s || !r || bal <= 0) return null
+    if (!e || !s || !r || r <= 0 || r > 100 || bal <= 0) return { error: 'Risk must be between 0 and 100 %.' }
     const riskUsd = (bal * r) / 100
     const stopDist = Math.abs(e - s)
     if (stopDist <= 0) return { error: 'Stop must differ from entry.' }
@@ -38,11 +38,13 @@ const PositionCalculator = ({ balanceUsd }) => {
       stopLoss: s,
     }
     if (t) {
-      const reward = Math.abs(t - e) * qty
+      const signed = side === 'LONG' ? t - e : e - t
+      if (signed <= 0) return { error: `${side === 'LONG' ? 'Long' : 'Short'} target must be ${side === 'LONG' ? 'above' : 'below'} entry.` }
+      const reward = signed * qty
       out.target = t
       out.rewardUsd = reward
       out.rr = riskUsd > 0 ? reward / riskUsd : null
-      out.targetPct = ((t - e) / e) * 100 * (side === 'LONG' ? 1 : -1)
+      out.targetPct = signed / e * 100
     }
     return out
   }, [entry, stop, target, risk, side, marketPrice, balanceUsd])

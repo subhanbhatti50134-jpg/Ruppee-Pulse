@@ -11,6 +11,7 @@ const PremiumChart = ({ points, windowSize = 30, height = 320 }) => {
   const chartRef = useRef(null)
   const areaRef = useRef(null)
   const maRef = useRef(null)
+  const didFit = useRef(false)
 
   useEffect(() => {
     const el = containerRef.current
@@ -102,7 +103,13 @@ const PremiumChart = ({ points, windowSize = 30, height = 320 }) => {
     const first = data[0]
     const last = data[data.length - 1]
     if (first && last && first.time !== last.time) {
-      chartRef.current?.timeScale().fitContent()
+      if (!didFit.current) {
+        didFit.current = true
+        chartRef.current?.timeScale().fitContent()
+      }
+    } else {
+      // user panned/zoomed after a fit; allow a fresh fit on next data set
+      if (first == null || last == null || first.time === last.time) didFit.current = false
     }
   }, [points, windowSize])
 

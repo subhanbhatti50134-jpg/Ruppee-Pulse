@@ -45,7 +45,7 @@ const Toasts = () => {
   return (
     <div className="pointer-events-none fixed right-4 top-24 z-[60] flex w-80 flex-col gap-2">
       <div className="pointer-events-auto flex items-center justify-between rounded-lg border border-amber-600/50 bg-[#111a26] px-3 py-1.5 text-xs text-amber-300">
-        <span>Arbitrage alerts</span>
+        <span>Alerts</span>
         <div className="flex items-center gap-3">
           {permission !== 'unsupported' && permission !== 'granted' && (
             <button

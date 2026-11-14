@@ -7,6 +7,10 @@ APis/venv
 APis/data/*.db
 APis/data/*.key
 APis/backend.log
+APis/.env
+*.env
+*.out
+*.err
 ui/node_modules
 ui/dist
 *.md

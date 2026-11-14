@@ -43,6 +43,10 @@ export const api = async (path, { method = 'GET', body, signal } = {}) => {
     data = null
   }
 
+  if (data === null && response.status !== 204) {
+    throw new ApiError(`Unexpected response from ${path}`, response.status)
+  }
+
   if (!response.ok) {
     const detail = data?.detail
     let message = typeof detail === 'string'

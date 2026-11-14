@@ -8,7 +8,6 @@ secure order-execution module.
 ## Quick start
 
 ```bash
-cd "/home/muhammadsubhan/Desktop/Ruppee Pulse"
 ./run.sh
 ```
 
@@ -90,7 +89,7 @@ Ruppee Pulse/  # repo folder; display name "Rupee Pulse"
 │   │   ├── db.py              # SQLite: users, sessions, keys, orders, stops, alerts
 │   │   ├── ws.py              # /ws hub (tickers, p2p, alerts fan-out)
 │   │   └── routers/           # auth, market, p2p, trade, alerts, stops, telegram
-│   ├── tests/                 # pytest suite (49 tests, no network needed)
+│   ├── tests/                 # pytest suite (51 tests, no network needed)
 │   ├── data/                  # SQLite DB + master.key (auto-created)
 │   ├── requirements.txt / requirements-dev.txt
 │   ├── pyproject.toml         # ruff + pytest config

@@ -23,28 +23,38 @@ const StopsPanel = () => {
   })
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
   const authed = !!getCurrentUser()
+  // Which source wrote the current `error`: background polls must not wipe
+  // an error the user just caused with create/cancel (they'd vanish within 15s).
+  const errorFromRef = useRef('')
   const marketPrice = tickers[selectedSymbol]?.price || 0
 
   const load = useCallback(async () => {
     if (!authed) return
+    errorFromRef.current = 'load'
     try {
       const data = await api('/api/stops')
       setStops(data.stops || [])
-      setError('')
+      if (errorFromRef.current === 'load') setError('')
     } catch (err) {
       setError(err.message)
+    } finally {
+      errorFromRef.current = ''
     }
   }, [authed])
 
   useEffect(() => {
     load()
     const timer = setInterval(load, 15000)
-    const handler = () => load()
+    const handler = () => {
+      errorFromRef.current = 'action'
+      load()
+    }
     window.addEventListener('rp:order-placed', handler)
     return () => {
-      clearInterval(timer)
       window.removeEventListener('rp:order-placed', handler)
+      clearInterval(timer)
     }
   }, [load])
 
@@ -97,6 +107,8 @@ const StopsPanel = () => {
       }
     }
     try {
+      setBusy(true)
+      errorFromRef.current = 'action'
       const body = {
         symbol: selectedSymbol,
         side: form.side,
@@ -118,11 +130,15 @@ const StopsPanel = () => {
       load()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setBusy(false)
+      errorFromRef.current = ''
     }
   }
 
   const cancel = async (id) => {
     setNotice('')
+    errorFromRef.current = 'action'
     setError('')
     try {
       await api(`/api/stops/${id}`, { method: 'DELETE' })
@@ -130,6 +146,8 @@ const StopsPanel = () => {
       load()
     } catch (err) {
       setError(err.message)
+    } finally {
+      errorFromRef.current = ''
     }
   }
 
@@ -252,6 +270,7 @@ const StopsPanel = () => {
         )}
         <button
           type="submit"
+          disabled={busy}
           className="col-span-2 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white transition hover:bg-blue-500"
         >
           {isOco

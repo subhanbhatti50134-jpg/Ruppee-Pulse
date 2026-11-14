@@ -358,7 +358,7 @@ const Trade = () => {
             <div className="mb-3 border-b border-gray-800 pb-3">
               <h2 className="text-lg font-semibold">STOP-LOSS / TAKE-PROFIT</h2>
             </div>
-            <StopsPanel />
+            <StopsPanel key={selectedSymbol} />
           </div>
         </section>
 
@@ -367,7 +367,7 @@ const Trade = () => {
             <div className="mb-3 border-b border-gray-800 pb-3">
               <h2 className="text-lg font-semibold">POSITION CALCULATOR</h2>
             </div>
-            <PositionCalculator balanceUsd={balances?.total_usd} />
+            <PositionCalculator key={selectedSymbol} balanceUsd={balances?.total_usd} />
           </div>
         </section>
 

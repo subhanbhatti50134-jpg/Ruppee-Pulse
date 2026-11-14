@@ -86,6 +86,7 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
   const volumeRunRef = useRef({ time: 0, value: 0, last: null })
   const [maOn, setMaOn] = useState({ 7: true, 25: true, 99: false })
   const [rsiOn, setRsiOn] = useState(true)
+  const [err, setErr] = useState(null)
   const { tickers, lastTick } = useMarket()
 
   useEffect(() => {
@@ -163,25 +164,28 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
 
     // Sync by *time*, not logical index: rsiCalc only emits from bar 14 onward,
     // so copying {from,to} logical indices would shift the RSI 14 bars left of
-    // the price bars it describes.
-    const toMain = (range) => {
-      if (range && !syncingRef.current) {
-        syncingRef.current = true
-        const from = chart.timeScale().logicalToTime(range.from)
-        const to = chart.timeScale().logicalToTime(range.to)
-        if (from != null && to != null) main.timeScale().setVisibleRange({ from, to })
+    // the price bars it describes. (lightweight-charts v5 has no logicalToTime;
+    // getVisibleRange/setVisibleRange already speak time on both charts.)
+    const syncTo = (fromChart, toChart) => {
+      if (syncingRef.current) return
+      let r = null
+      try {
+        r = fromChart.timeScale().getVisibleRange()
+      } catch {
+        return // charts not laid out yet
+      }
+      if (!r) return
+      syncingRef.current = true
+      try {
+        toChart.timeScale().setVisibleRange(r)
+      } finally {
         syncingRef.current = false
       }
     }
-    const toRsi = (range) => {
-      if (range && !syncingRef.current) {
-        syncingRef.current = true
-        const from = main.timeScale().logicalToTime(range.from)
-        const to = main.timeScale().logicalToTime(range.to)
-        if (from != null && to != null) chart.timeScale().setVisibleRange({ from, to })
-        syncingRef.current = false
-      }
-    }
+    const toMain = () => syncTo(chart, main)
+    const toRsi = () => syncTo(main, chart)
+    chart.timeScale().subscribeVisibleTimeRangeChange(toMain)
+    main.timeScale().subscribeVisibleTimeRangeChange(toRsi)
     chart.timeScale().subscribeVisibleLogicalRangeChange(toMain)
     main.timeScale().subscribeVisibleLogicalRangeChange(toRsi)
 
@@ -189,20 +193,18 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
     rsiSeriesRef.current = series
     if (klinesRef.current.length) series.setData(rsiCalc(klinesRef.current))
     try {
-      const range = main.timeScale().getVisibleLogicalRange()
-      if (range) {
-        const from = main.timeScale().logicalToTime(range.from)
-        const to = main.timeScale().logicalToTime(range.to)
-        if (from != null && to != null) chart.timeScale().setVisibleRange({ from, to })
-      } else {
-        chart.timeScale().fitContent()
-      }
+      const range = main.timeScale().getVisibleRange()
+      if (range) chart.timeScale().setVisibleRange(range)
+      else chart.timeScale().fitContent()
     } catch {
-      /* charts not laid out yet; next interaction syncs them */
+      chart.timeScale().fitContent() // not laid out yet; next interaction syncs them
     }
 
     return () => {
+      main.timeScale().unsubscribeVisibleTimeRangeChange(toRsi)
       main.timeScale().unsubscribeVisibleLogicalRangeChange(toRsi)
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(toMain)
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(toMain)
       chart.remove()
       rsiChartRef.current = null
       rsiSeriesRef.current = null
@@ -259,8 +261,8 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
           firstLoad = false
           chartRef.current?.timeScale().scrollToRealTime()
         }
-      } catch {
-        /* chart stays empty on fetch error */
+      } catch (e) {
+        setErr(e.message || 'Chart fetch failed')
       }
     }
     load()
@@ -397,6 +399,7 @@ const CandleChart = ({ symbol, interval = '1h', height = 420, onIntervalChange }
           RSI 14 · overbought 70 / oversold 30
         </span>
       </div>
+      {err && <p className="text-sm text-red-400">{err}</p>}
       <div ref={rsiContainerRef} style={{ width: '100%', height: rsiOn ? 96 : 0, display: rsiOn ? 'block' : 'none' }} />
     </div>
   )

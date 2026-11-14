@@ -5,23 +5,28 @@
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-if ! curl -s -m 2 -o /dev/null http://127.0.0.1:8010/api/health; then
+if ! curl -sf -s -m 2 -o /dev/null http://127.0.0.1:8010/api/health; then
   echo "[run] starting backend on :8010 ..."
   cd "$ROOT/APis"
   if [ ! -d venv ]; then
     echo "[run] creating Python venv"
     python3 -m venv venv
-    ./venv/bin/pip install -q -r requirements.txt
   fi
+  echo "[run] syncing Python venv"
+  ./venv/bin/pip install -q -r requirements.txt
   setsid nohup ./venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8010 \
     > "$ROOT/APis/backend.log" 2>&1 < /dev/null &
   for i in $(seq 1 30); do
     sleep 1
-    if curl -s -m 2 -o /dev/null http://127.0.0.1:8010/api/health; then
+    if curl -sf -s -m 2 -o /dev/null http://127.0.0.1:8010/api/health; then
       echo "[run] backend ready"
       break
     fi
   done
+  if [ "$i" -eq 31 ]; then
+    echo "[run] ERROR: backend not healthy after 30 s — aborting"
+    exit 1
+  fi
 else
   echo "[run] backend already running on :8010"
 fi
