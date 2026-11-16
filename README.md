@@ -1,5 +1,7 @@
 # Rupee Pulse
 
+![Screenshot of the Rupee Pulse dashboard](docs/images/rupee-pulse.png)
+
 Low-latency cryptocurrency trading & analytics dashboard for the Pakistani market.
 Live Binance spot prices in **USD** shown side-by-side with **PKR** valuations from live
 Binance P2P merchant rates — plus spread/premium analytics, arbitrage alerts, and a
