@@ -1,5 +1,7 @@
 # Rupee Pulse
 
+[![CI](https://github.com/subhanbhatti50134-jpg/Ruppee-Pulse/actions/workflows/ci.yml/badge.svg)](https://github.com/subhanbhatti50134-jpg/Ruppee-Pulse/actions/workflows/ci.yml)
+
 ![Screenshot of the Rupee Pulse dashboard](docs/images/rupee-pulse.png)
 
 Low-latency cryptocurrency trading & analytics dashboard for the Pakistani market.
